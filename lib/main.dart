@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -25,37 +26,56 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xFF2ECC71),
       ),
       home: FutureBuilder(
-        future: Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform,
+  future: Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  ),
+  builder: (context, snapshot) {
+    // If Firebase init error
+    if (snapshot.hasError) {
+      return Scaffold(
+        body: Center(
+          child: Text('Error: ${snapshot.error}'),
         ),
-        builder: (context, snapshot) {
-          // Check for errors
-          if (snapshot.hasError) {
-            return Scaffold(
-              body: Center(
-                child: Text('Error: ${snapshot.error}'),
-              ),
+      );
+    }
+
+    // Once Firebase is ready
+    if (snapshot.connectionState == ConnectionState.done) {
+      return StreamBuilder(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, userSnapshot) {
+          if (userSnapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
             );
           }
 
-          // Once complete, show your app
-          if (snapshot.connectionState == ConnectionState.done) {
-            return HomeShell();
+          if (userSnapshot.hasData) {
+            // ✅ User is logged in — go to HomeShell (Dashboard)
+            return const HomeShell();
+          } else {
+            // 🚪 No user signed in — go to Welcome/Login flow
+            return const WelcomeScreen();
           }
-
-          // Otherwise, show a loading indicator
-          return const Scaffold(
-            body: Center(
-              child: CircularProgressIndicator(),
-            ),
-          );
         },
+      );
+    }
+
+    // Firebase still loading
+    return const Scaffold(
+      body: Center(
+        child: CircularProgressIndicator(),
       ),
+    );
+  },
+),
+
       routes: {
         '/welcome': (_) => const WelcomeScreen(),
         '/login': (_) => const LoginScreen(),
         '/signup': (_) => const SignUpScreen(),
         '/map': (_) => const MapRouteScreen(),
+        '/home': (_) => const HomeShell(),
       },
     );
   }

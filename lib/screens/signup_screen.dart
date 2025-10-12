@@ -17,7 +17,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   Future<void> _createAccount() async {
     if (_pwCtrl.text != _pwConfirmCtrl.text) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Passwords do not match')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Passwords do not match')));
       return;
     }
     setState(() => _loading = true);
@@ -32,9 +33,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
         'email': _emailCtrl.text.trim(),
         'createdAt': FieldValue.serverTimestamp(),
       });
-      Navigator.pushReplacementNamed(context, '/map');
+      Navigator.pushReplacementNamed(context, '/home');
     } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'Signup failed')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message ?? 'Signup failed')));
     } finally {
       setState(() => _loading = false);
     }
@@ -47,31 +49,84 @@ class _SignUpScreenState extends State<SignUpScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            child: Container(
-              margin: EdgeInsets.symmetric(horizontal: 20),
-              padding: EdgeInsets.all(18),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-              child: Column(
-                children: [
-                  Text('Create Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 12),
-                  TextField(controller: _nameCtrl, decoration: InputDecoration(hintText: 'Enter your full name')),
-                  SizedBox(height: 8),
-                  TextField(controller: _emailCtrl, decoration: InputDecoration(hintText: 'Enter your email')),
-                  SizedBox(height: 8),
-                  TextField(controller: _pwCtrl, obscureText: true, decoration: InputDecoration(hintText: 'Enter your password')),
-                  SizedBox(height: 8),
-                  TextField(controller: _pwConfirmCtrl, obscureText: true, decoration: InputDecoration(hintText: 'Confirm password')),
-                  SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _loading ? null : _createAccount,
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: Size(double.infinity, 44)),
-                    child: _loading ? CircularProgressIndicator(color: Colors.white) : Text('Create Account'),
+            child: Column(
+              children: [
+                // 🔹 Logo above the white box
+                Image.asset(
+                  'assets/logo3.png',
+                  height: 120,
+                ),
+                const SizedBox(height: 20),
+
+                // 🔹 White rounded container
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  SizedBox(height: 8),
-                  TextButton(onPressed: () => Navigator.pushNamed(context, '/login'), child: Text('Already have an account? Sign in')),
-                ],
-              ),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Create Account',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _nameCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'Enter your full name',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _emailCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'Enter your email',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _pwCtrl,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          hintText: 'Enter your password',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _pwConfirmCtrl,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          hintText: 'Confirm password',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: _loading ? null : _createAccount,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          minimumSize: const Size(double.infinity, 44),
+                        ),
+                        child: _loading
+                            ? const CircularProgressIndicator(
+                                color: Colors.white)
+                            : const Text('Create Account'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, '/login'),
+                        child: const Text(
+                          "Already have an account?" 'Sign in',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ),
