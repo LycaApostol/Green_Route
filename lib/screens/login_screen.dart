@@ -75,7 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const Text(
                         'Welcome Back!',
                         style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
+                            fontSize: 18, fontWeight: FontWeight.bold, font-family: 'Instrument Sans'),
                       ),
                       const SizedBox(height: 12),
                       TextField(
@@ -106,7 +106,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       TextButton(
                         onPressed: () =>
                             Navigator.pushNamed(context, '/signup'),
-                        child: const Text("Don't have an account?" 'Sign up'),
+                        child: const Text("Don't have an account? " 'Sign up'),
                       ),
                       const Divider(),
                       const Text('Log in with'),
