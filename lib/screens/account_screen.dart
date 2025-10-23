@@ -8,31 +8,40 @@ class AccountScreen extends StatelessWidget {
   const AccountScreen({super.key});
 
   Future<void> _logout(BuildContext context) async {
-    // Confirm logout with user
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Log Out'),
         content: const Text('Are you sure you want to log out?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Log Out')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Log Out'),
+          ),
         ],
       ),
     );
 
     if (confirm != true) return;
 
-    // Perform Firebase logout
     await FirebaseAuth.instance.signOut();
-
-    // Navigate back to the Welcome or Login screen
     Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final displayName = user?.displayName ?? 'Guest User';
+    final email = user?.email ?? 'No email available';
+    final photoURL = user?.photoURL;
+
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text('Account'),
         backgroundColor: Colors.white,
@@ -40,63 +49,174 @@ class AccountScreen extends StatelessWidget {
         elevation: 0,
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(18.0),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 36,
-                    backgroundImage: AssetImage('assets/avatar_placeholder.png'), // replace if needed
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text('Kinemberlo', style: TextStyle(fontWeight: FontWeight.bold)),
-                      Text('View/edit profile'),
-                    ],
-                  ),
-                ],
+              // 🔹 Profile Header Card
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFD6F5E3),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 36,
+                      backgroundImage: photoURL != null
+                          ? NetworkImage(photoURL)
+                          : const AssetImage('assets/avatar_placeholder.png')
+                              as ImageProvider,
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          displayName,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          email,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 18),
-              ListTile(
-                title: const Text('Default Location'),
-                trailing: const Icon(Icons.chevron_right),
+
+              const SizedBox(height: 24),
+
+              // 🔹 Personal Information Section
+              const Text(
+                "Personal Information",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _settingsTile(
+                context,
+                icon: Icons.edit,
+                title: "Edit Profile",
+                trailing: Icons.edit_outlined,
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Edit Profile not yet implemented')),
+                  );
+                },
+              ),
+              _settingsTile(
+                context,
+                icon: Icons.location_on_outlined,
+                title: "Default Location",
+                trailing: Icons.chevron_right,
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const DefaultLocationSettings()),
                 ),
               ),
-              ListTile(
-                title: const Text('Notifications'),
-                trailing: const Icon(Icons.chevron_right),
+
+              const SizedBox(height: 24),
+
+              // 🔹 App Settings Section
+              const Text(
+                "App Settings",
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _settingsTile(
+                context,
+                icon: Icons.notifications_outlined,
+                title: "Notifications",
+                trailing: Icons.chevron_right,
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const NotificationsSettings()),
                 ),
               ),
-              ListTile(
-                title: const Text('Privacy & Security'),
-                trailing: const Icon(Icons.chevron_right),
+              _settingsTile(
+                context,
+                icon: Icons.lock_outline,
+                title: "Privacy & Security",
+                trailing: Icons.chevron_right,
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const PrivacySettings()),
                 ),
               ),
-              const Spacer(),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red[400],
-                  minimumSize: const Size.fromHeight(48),
+              _settingsTile(
+                context,
+                icon: Icons.help_outline,
+                title: "Help & Support",
+                trailing: Icons.chevron_right,
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Help & Support not yet implemented')),
+                  );
+                },
+              ),
+
+              const SizedBox(height: 30),
+
+              // 🔹 Log Out Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => _logout(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red[300],
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    "Log Out",
+                    style: TextStyle(fontSize: 16, color: Colors.white),
+                  ),
                 ),
-                onPressed: () => _logout(context),
-                child: const Text('Log Out'),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _settingsTile(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required IconData trailing,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.grey[100],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: Colors.green),
+        title: Text(title, style: const TextStyle(fontSize: 15)),
+        trailing: Icon(trailing, color: Colors.grey),
+        onTap: onTap,
       ),
     );
   }
