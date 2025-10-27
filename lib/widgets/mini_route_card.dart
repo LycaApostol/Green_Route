@@ -9,7 +9,7 @@ Widget miniRouteCard({required String title, String? subtitle}) {
       children: [
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title, style: TextStyle(fontWeight: FontWeight.bold)),
-          if (subtitle != null) Text(subtitle!, style: TextStyle(color: Colors.grey[700])),
+          if (subtitle != null) Text(subtitle, style: TextStyle(color: Colors.grey[700])),
         ]),
         Column(children: [Text('2.8 km', style: TextStyle(fontWeight: FontWeight.bold)), Text('40 min')]),
       ],
