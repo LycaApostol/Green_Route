@@ -183,7 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
       title: Text(text),
       trailing: Switch(
         value: value,
-        activeColor: Colors.green,
+        activeThumbColor: Colors.green,
         onChanged: onChanged,
       ),
     );
