@@ -4,9 +4,7 @@ import 'route_detail_screen.dart';
 class RouteListScreen extends StatelessWidget {
   const RouteListScreen({super.key});
   final List<Map<String,String>> _results = const [
-    {'title':'Osmeña Blvd', 'subtitle':'Cebu City, 6000 Cebu'},
-    {'title':'Osmeña Village', 'subtitle':'M.L. Quezon Ave, Cebu'},
-    {'title':'Osmeña Drive', 'subtitle':'Cebu City Central'},
+    
   ];
 
   @override
