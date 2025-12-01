@@ -21,7 +21,7 @@
         <meta-data android:name="flutterEmbedding" android:value="2"/>
 
         <!-- ✅ Your Google Maps API Key -->
-        <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyDyd70QnF1eLXP00HmMM7tmY1NIk-qeJmQ"/>
+        <meta-data android:name="com.google.android.geo.API_KEY" android:value=""/>
     </application>
 
     <!-- Required to query activities that can process text -->

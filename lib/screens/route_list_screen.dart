@@ -3,8 +3,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
+import 'route_detail_screen.dart';
 
-const String googleApiKey = "AIzaSyAdys3eRrtBjvpB9WUB-MqhGxs0dtYvfNI";
+const String googleApiKey = "";
 
 class RouteListScreen extends StatefulWidget {
   final maps.LatLng fromLocation;
@@ -30,6 +31,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
   bool isLoading = true;
   String? errorMessage;
   int? selectedRouteIndex;
+  int? shortestRouteIndex;
 
   Set<maps.Marker> markers = {};
   Map<maps.PolylineId, maps.Polyline> polylines = {};
@@ -71,55 +73,43 @@ class _RouteListScreenState extends State<RouteListScreen> {
     });
 
     try {
-      final url = 'https://maps.googleapis.com/maps/api/directions/json?'
-          'origin=${widget.fromLocation.latitude},${widget.fromLocation.longitude}'
-          '&destination=${widget.toLocation.latitude},${widget.toLocation.longitude}'
-          '&mode=transit'
-          '&alternatives=true'
-          '&key=$googleApiKey';
+      // Fetch walking routes
+      final walkingRoutes = await _fetchRoutesForMode('walking');
+      
+      // Fetch cycling routes
+      final cyclingRoutes = await _fetchRoutesForMode('bicycling');
 
-      print('Fetching routes from: $url');
-
-      final response = await http.get(Uri.parse(url));
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        print('API Status: ${data['status']}');
-        
-        if (data['status'] == 'OK') {
-          final routes = (data['routes'] as List)
-              .asMap()
-              .entries
-              .map((entry) => RouteOption.fromJson(entry.value, entry.key))
-              .toList();
-
-          setState(() {
-            routeOptions = routes;
-            isLoading = false;
-            if (routes.isNotEmpty) {
-              _selectRoute(0);
-            }
-          });
-        } else if (data['status'] == 'ZERO_RESULTS') {
-          setState(() {
-            errorMessage = 'No transit routes found between these locations. Transit may not be available.';
-            isLoading = false;
-          });
-        } else if (data['status'] == 'NOT_FOUND') {
-          setState(() {
-            errorMessage = 'One or both locations could not be found.';
-            isLoading = false;
-          });
-        } else {
-          setState(() {
-            errorMessage = 'Error: ${data['status']}\n${data['error_message'] ?? ''}';
-            isLoading = false;
-          });
-        }
-      } else {
-        throw Exception('HTTP ${response.statusCode}');
+      // Combine and limit to 3 routes
+      List<RouteOption> allRoutes = [...walkingRoutes, ...cyclingRoutes];
+      
+      if (allRoutes.isEmpty) {
+        setState(() {
+          errorMessage = 'No walking or cycling routes found between these locations.';
+          isLoading = false;
+        });
+        return;
       }
+
+      // Sort by distance (shortest first) and take top 3
+      allRoutes.sort((a, b) => a.distanceValue.compareTo(b.distanceValue));
+      allRoutes = allRoutes.take(3).toList();
+
+      // Re-index routes
+      for (int i = 0; i < allRoutes.length; i++) {
+        allRoutes[i] = allRoutes[i].copyWith(routeIndex: i);
+      }
+
+      // Find shortest route (first one after sorting)
+      int shortest = 0;
+
+      setState(() {
+        routeOptions = allRoutes;
+        shortestRouteIndex = shortest;
+        isLoading = false;
+        if (allRoutes.isNotEmpty) {
+          _selectRoute(shortest);
+        }
+      });
     } catch (e) {
       print('Error fetching routes: $e');
       setState(() {
@@ -127,6 +117,38 @@ class _RouteListScreenState extends State<RouteListScreen> {
         isLoading = false;
       });
     }
+  }
+
+  Future<List<RouteOption>> _fetchRoutesForMode(String mode) async {
+    try {
+      final url = 'https://maps.googleapis.com/maps/api/directions/json?'
+          'origin=${widget.fromLocation.latitude},${widget.fromLocation.longitude}'
+          '&destination=${widget.toLocation.latitude},${widget.toLocation.longitude}'
+          '&mode=$mode'
+          '&alternatives=true'
+          '&key=$googleApiKey';
+
+      print('Fetching $mode routes from: $url');
+
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        print('API Status for $mode: ${data['status']}');
+        
+        if (data['status'] == 'OK') {
+          return (data['routes'] as List)
+              .asMap()
+              .entries
+              .map((entry) => RouteOption.fromJson(entry.value, entry.key, mode))
+              .toList();
+        }
+      }
+    } catch (e) {
+      print('Error fetching $mode routes: $e');
+    }
+    return [];
   }
 
   void _selectRoute(int index) {
@@ -140,13 +162,47 @@ class _RouteListScreenState extends State<RouteListScreen> {
     }
   }
 
+  void _navigateToDetail(int index) {
+    final route = routeOptions[index];
+    final isRecommended = shortestRouteIndex == index;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => RouteDetailScreen(
+          title: '${route.mode == 'walking' ? 'Walking' : 'Cycling'} Route',
+          subtitle: '${widget.fromAddress} to ${widget.toAddress}',
+          routeData: {
+            'mode': route.mode,
+            'distance': route.distance,
+            'duration': route.duration,
+            'isRecommended': isRecommended,
+            'polylinePoints': route.polylinePoints
+                .map((point) => {
+                  'latitude': point.latitude,
+                  'longitude': point.longitude,
+                })
+                .toList(),
+            'steps': route.steps
+                .map((step) => {
+                  'instruction': step.instruction,
+                  'duration': step.duration,
+                  'distance': step.distance,
+                })
+                .toList(),
+          },
+        ),
+      ),
+    );
+  }
+
   void _drawRouteOnMap(RouteOption route) {
     final polylineId = maps.PolylineId('route_${route.routeIndex}');
     
     final polyline = maps.Polyline(
       polylineId: polylineId,
       points: route.polylinePoints,
-      color: Colors.blue,
+      color: route.mode == 'walking' ? Colors.blue : Colors.orange,
       width: 5,
       startCap: maps.Cap.roundCap,
       endCap: maps.Cap.roundCap,
@@ -289,9 +345,10 @@ class _RouteListScreenState extends State<RouteListScreen> {
                             itemBuilder: (context, index) {
                               final route = routeOptions[index];
                               final isSelected = selectedRouteIndex == index;
+                              final isRecommended = shortestRouteIndex == index;
 
                               return Card(
-                                elevation: isSelected ? 8 : 2,
+                                elevation: isSelected ? 4 : 2,
                                 color: isSelected ? Colors.green[50] : Colors.white,
                                 margin: const EdgeInsets.only(bottom: 12),
                                 shape: RoundedRectangleBorder(
@@ -314,44 +371,75 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                             Container(
                                               padding: const EdgeInsets.all(8),
                                               decoration: BoxDecoration(
-                                                color: Colors.green[100],
+                                                color: route.mode == 'walking' 
+                                                    ? Colors.blue[100] 
+                                                    : Colors.orange[100],
                                                 borderRadius: BorderRadius.circular(8),
                                               ),
                                               child: Icon(
-                                                Icons.directions_transit,
-                                                color: Colors.green[700],
+                                                route.mode == 'walking' 
+                                                    ? Icons.directions_walk 
+                                                    : Icons.directions_bike,
+                                                color: route.mode == 'walking' 
+                                                    ? Colors.blue[700] 
+                                                    : Colors.orange[700],
                                                 size: 24,
                                               ),
                                             ),
                                             const SizedBox(width: 12),
-                                            Text(
-                                              'Route ${index + 1}',
-                                              style: TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.green[700],
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Row(
+                                                    children: [
+                                                      Text(
+                                                        route.mode == 'walking' ? 'Walking' : 'Cycling',
+                                                        style: TextStyle(
+                                                          fontSize: 18,
+                                                          fontWeight: FontWeight.bold,
+                                                          color: route.mode == 'walking' 
+                                                              ? Colors.blue[700] 
+                                                              : Colors.orange[700],
+                                                        ),
+                                                      ),
+                                                      if (isRecommended) ...[
+                                                        const SizedBox(width: 8),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 4,
+                                                          ),
+                                                          decoration: BoxDecoration(
+                                                            color: Colors.amber,
+                                                            borderRadius: BorderRadius.circular(12),
+                                                          ),
+                                                          child: Row(
+                                                            mainAxisSize: MainAxisSize.min,
+                                                            children: [
+                                                              Icon(
+                                                                Icons.star,
+                                                                size: 14,
+                                                                color: Colors.white,
+                                                              ),
+                                                              const SizedBox(width: 4),
+                                                              const Text(
+                                                                'Shortest',
+                                                                style: TextStyle(
+                                                                  color: Colors.white,
+                                                                  fontSize: 11,
+                                                                  fontWeight: FontWeight.bold,
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                ],
                                               ),
                                             ),
-                                            const Spacer(),
-                                            if (isSelected)
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 12,
-                                                  vertical: 6,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.green[700],
-                                                  borderRadius: BorderRadius.circular(20),
-                                                ),
-                                                child: const Text(
-                                                  'Selected',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
                                           ],
                                         ),
                                         const SizedBox(height: 16),
@@ -378,98 +466,32 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                             ),
                                           ],
                                         ),
-                                        if (route.steps.isNotEmpty) ...[
-                                          const SizedBox(height: 16),
-                                          const Divider(),
-                                          const SizedBox(height: 12),
-                                          Row(
-                                            children: [
-                                              Icon(Icons.list, size: 18, color: Colors.grey[700]),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                'Directions (${route.steps.length} steps)',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 15,
-                                                  color: Colors.grey[700],
-                                                ),
+                                        const SizedBox(height: 16),
+                                        SizedBox(
+                                          width: double.infinity,
+                                          child: ElevatedButton(
+                                            onPressed: () => _navigateToDetail(index),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: isSelected 
+                                                  ? Colors.green[700] 
+                                                  : Colors.grey[300],
+                                              foregroundColor: isSelected 
+                                                  ? Colors.white 
+                                                  : Colors.grey[700],
+                                              padding: const EdgeInsets.symmetric(vertical: 12),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(8),
                                               ),
-                                            ],
+                                            ),
+                                            child: const Text(
+                                              'View Details',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 15,
+                                              ),
+                                            ),
                                           ),
-                                          const SizedBox(height: 12),
-                                          ...route.steps.asMap().entries.map((entry) {
-                                            final stepIndex = entry.key;
-                                            final step = entry.value;
-                                            return Padding(
-                                              padding: const EdgeInsets.only(bottom: 12),
-                                              child: Row(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Container(
-                                                    width: 28,
-                                                    height: 28,
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.green[100],
-                                                      shape: BoxShape.circle,
-                                                    ),
-                                                    child: Center(
-                                                      child: Text(
-                                                        '${stepIndex + 1}',
-                                                        style: TextStyle(
-                                                          color: Colors.green[700],
-                                                          fontWeight: FontWeight.bold,
-                                                          fontSize: 12,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: Column(
-                                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                                      children: [
-                                                        Row(
-                                                          children: [
-                                                            Icon(
-                                                              _getIconForTravelMode(step.travelMode),
-                                                              size: 18,
-                                                              color: Colors.grey[600],
-                                                            ),
-                                                            const SizedBox(width: 6),
-                                                            Text(
-                                                              step.travelMode.toUpperCase(),
-                                                              style: TextStyle(
-                                                                fontSize: 11,
-                                                                color: Colors.grey[600],
-                                                                fontWeight: FontWeight.bold,
-                                                              ),
-                                                            ),
-                                                            const SizedBox(width: 12),
-                                                            Text(
-                                                              '${step.duration} • ${step.distance}',
-                                                              style: TextStyle(
-                                                                fontSize: 11,
-                                                                color: Colors.grey[600],
-                                                              ),
-                                                            ),
-                                                          ],
-                                                        ),
-                                                        const SizedBox(height: 6),
-                                                        Text(
-                                                          step.instruction,
-                                                          style: const TextStyle(
-                                                            fontSize: 14,
-                                                            height: 1.4,
-                                                          ),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          }),
-                                        ],
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -482,39 +504,28 @@ class _RouteListScreenState extends State<RouteListScreen> {
       ),
     );
   }
-
-  IconData _getIconForTravelMode(String mode) {
-    switch (mode.toLowerCase()) {
-      case 'walking':
-        return Icons.directions_walk;
-      case 'transit':
-        return Icons.directions_transit;
-      case 'driving':
-        return Icons.directions_car;
-      case 'bicycling':
-        return Icons.directions_bike;
-      default:
-        return Icons.navigation;
-    }
-  }
 }
 
 class RouteOption {
   final int routeIndex;
   final String duration;
   final String distance;
+  final int distanceValue;
   final List<maps.LatLng> polylinePoints;
   final List<RouteStep> steps;
+  final String mode;
 
   RouteOption({
     required this.routeIndex,
     required this.duration,
     required this.distance,
+    required this.distanceValue,
     required this.polylinePoints,
     required this.steps,
+    required this.mode,
   });
 
-  factory RouteOption.fromJson(Map<String, dynamic> json, int index) {
+  factory RouteOption.fromJson(Map<String, dynamic> json, int index, String mode) {
     final leg = json['legs'][0];
     
     // Decode polyline
@@ -532,8 +543,30 @@ class RouteOption {
       routeIndex: index,
       duration: leg['duration']['text'] ?? 'N/A',
       distance: leg['distance']['text'] ?? 'N/A',
+      distanceValue: leg['distance']['value'] ?? 0,
       polylinePoints: polylinePoints,
       steps: steps,
+      mode: mode,
+    );
+  }
+
+  RouteOption copyWith({
+    int? routeIndex,
+    String? duration,
+    String? distance,
+    int? distanceValue,
+    List<maps.LatLng>? polylinePoints,
+    List<RouteStep>? steps,
+    String? mode,
+  }) {
+    return RouteOption(
+      routeIndex: routeIndex ?? this.routeIndex,
+      duration: duration ?? this.duration,
+      distance: distance ?? this.distance,
+      distanceValue: distanceValue ?? this.distanceValue,
+      polylinePoints: polylinePoints ?? this.polylinePoints,
+      steps: steps ?? this.steps,
+      mode: mode ?? this.mode,
     );
   }
 }
@@ -542,13 +575,11 @@ class RouteStep {
   final String instruction;
   final String duration;
   final String distance;
-  final String travelMode;
 
   RouteStep({
     required this.instruction,
     required this.duration,
     required this.distance,
-    required this.travelMode,
   });
 
   factory RouteStep.fromJson(Map<String, dynamic> json) {
@@ -560,31 +591,10 @@ class RouteStep {
         .replaceAll('&#39;', "'")
         .replaceAll('&quot;', '"') ?? 'Continue';
 
-    // Add transit details if available
-    if (json['transit_details'] != null) {
-      final transit = json['transit_details'];
-      final line = transit['line'];
-      final vehicleType = line['vehicle']?['name'] ?? 'Transit';
-      final lineName = line['short_name'] ?? line['name'] ?? '';
-      
-      if (lineName.isNotEmpty) {
-        instruction = '$vehicleType $lineName: $instruction';
-      }
-      
-      // Add departure and arrival stops if available
-      final departureStop = transit['departure_stop']?['name'];
-      final arrivalStop = transit['arrival_stop']?['name'];
-      
-      if (departureStop != null && arrivalStop != null) {
-        instruction += '\nFrom: $departureStop\nTo: $arrivalStop';
-      }
-    }
-
     return RouteStep(
       instruction: instruction,
       duration: json['duration']?['text'] ?? 'N/A',
       distance: json['distance']?['text'] ?? 'N/A',
-      travelMode: json['travel_mode'] ?? 'WALKING',
     );
   }
 }

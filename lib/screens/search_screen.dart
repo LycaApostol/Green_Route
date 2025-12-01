@@ -5,10 +5,10 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'route_list_screen.dart';
 
-const String googleApiKey = "AIzaSyAdys3eRrtBjvpB9WUB-MqhGxs0dtYvfNI";
+const String googleApiKey = "";
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({Key? key}) : super(key: key);
+  const SearchScreen({super.key});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
