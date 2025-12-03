@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Green Route</string>
+    <string name="facebook_app_id">25205939062404573</string>
+    <string name="facebook_client_token">da22a8bf4c778ab4aa2379ffbcc68ec9</string>
+    <string name="fb_login_protocol_scheme">fb25205939062404573</string>
+</resources>

@@ -20,6 +20,7 @@ dependencies:
   cloud_firestore: ^5.4.4
   flutter_secure_storage: ^9.1.1
   google_sign_in: ^6.2.1
+  flutter_facebook_auth: ^6.0.3
 
   # --- Maps & Location ---
   google_maps_flutter: ^2.6.0
