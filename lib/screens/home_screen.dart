@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/mini_route_card.dart';
+import 'search_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,6 +12,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final user = FirebaseAuth.instance.currentUser;
+  final TextEditingController searchController = TextEditingController();
 
   bool prioritizeGreen = true;
   bool safeCycling = false;
@@ -21,9 +23,45 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String selectedMode = 'Cycling'; // Default mode
 
+  // Mode-specific preferences
+  Map<String, Map<String, bool>> modePreferences = {
+    'Cycling': {
+      'Prioritize bike lanes': true,
+      'Avoid steep hills': false,
+      'Scenic routes': true,
+      'Prioritize green spaces': true,
+    },
+    'Walking': {
+      'Pedestrian-friendly paths': true,
+      'Shade coverage': false,
+      'Scenic routes': true,
+      'Avoid highways': true,
+    },
+  };
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  void _navigateToSearch() {
+    // Always pass the current selectedMode and preferences when navigating
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SearchScreen(
+          selectedMode: selectedMode,
+          preferences: Map<String, bool>.from(modePreferences[selectedMode] ?? {}),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayName = user?.displayName ?? 'RouteBuddy';
+    final currentPreferences = modePreferences[selectedMode] ?? {};
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -41,16 +79,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // 🔹 Search bar
-                TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Search here',
-                    prefixIcon: const Icon(Icons.search),
-                    filled: true,
-                    fillColor: Colors.green[50],
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide.none,
+                // 🔹 Search bar with tap navigation
+                GestureDetector(
+                  onTap: _navigateToSearch,
+                  child: AbsorbPointer(
+                    child: TextField(
+                      controller: searchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search for routes',
+                        prefixIcon: const Icon(Icons.search, color: Colors.green),
+                        filled: true,
+                        fillColor: Colors.green[50],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -101,27 +145,45 @@ class _HomeScreenState extends State<HomeScreen> {
 
                 const SizedBox(height: 18),
 
-                // 🔹 Preferences
-                const Text(
-                  'Preferences',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                // 🔹 Dynamic Preferences based on selected mode
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '$selectedMode Preferences',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green[100],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        selectedMode,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[900],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
-                _prefRow(
-                  'Prioritize green spaces',
-                  prioritizeGreen,
-                  (v) => setState(() => prioritizeGreen = v),
-                ),
-                _prefRow(
-                  'Safe cycling lanes only',
-                  safeCycling,
-                  (v) => setState(() => safeCycling = v),
-                ),
-                _prefRow(
-                  'Scenic route preference',
-                  scenicRoutes,
-                  (v) => setState(() => scenicRoutes = v),
-                ),
+                
+                // Dynamic preference switches based on mode
+                ...currentPreferences.entries.map((entry) {
+                  return _prefRow(
+                    entry.key,
+                    entry.value,
+                    (v) {
+                      setState(() {
+                        modePreferences[selectedMode]![entry.key] = v;
+                      });
+                    },
+                  );
+                }).toList(),
               ],
             ),
           ),
@@ -139,7 +201,11 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: () {
           setState(() => selectedMode = label);
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('$label mode selected')),
+            SnackBar(
+              content: Text('$label mode selected - preferences updated'),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
           );
         },
         borderRadius: BorderRadius.circular(14),

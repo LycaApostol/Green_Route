@@ -8,7 +8,14 @@ import 'route_list_screen.dart';
 const String googleApiKey = "";
 
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({super.key});
+  final String? selectedMode;
+  final Map<String, bool>? preferences;
+
+  const SearchScreen({
+    super.key,
+    this.selectedMode,
+    this.preferences,
+  });
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -33,10 +40,46 @@ class _SearchScreenState extends State<SearchScreen> {
   bool isSearchingFrom = false;
   bool isSearchingTo = false;
 
+  // Use the passed mode or default to Cycling
+  late String currentMode;
+  late Map<String, bool> currentPreferences;
+
+  // Mode-specific preferences
+  final Map<String, Map<String, bool>> modePreferences = {
+    'Cycling': {
+      'Prioritize bike lanes': true,
+      'Avoid steep hills': false,
+      'Scenic routes': true,
+      'Prioritize green spaces': true,
+    },
+    'Walking': {
+      'Pedestrian-friendly paths': true,
+      'Shade coverage': false,
+      'Scenic routes': true,
+      'Avoid highways': true,
+    },
+  };
+
   @override
   void initState() {
     super.initState();
+    currentMode = widget.selectedMode ?? 'Cycling';
+    currentPreferences = widget.preferences ?? modePreferences[currentMode] ?? {};
     _getCurrentLocation();
+  }
+
+  void _switchMode(String newMode) {
+    setState(() {
+      currentMode = newMode;
+      currentPreferences = modePreferences[newMode] ?? {};
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Switched to $newMode mode'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   Future<void> _getCurrentLocation() async {
@@ -230,6 +273,8 @@ class _SearchScreenState extends State<SearchScreen> {
           toLocation: selectedToLocation!,
           fromAddress: fromController.text,
           toAddress: toController.text,
+          travelMode: currentMode,
+          preferences: currentPreferences,
         ),
       ),
     );
@@ -300,6 +345,12 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  IconData _getModeIcon() {
+    return currentMode == 'Cycling' 
+        ? Icons.directions_bike 
+        : Icons.directions_walk;
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -316,6 +367,92 @@ class _SearchScreenState extends State<SearchScreen> {
           backgroundColor: Colors.white,
           foregroundColor: Colors.green,
           elevation: 0,
+          actions: [
+            // Mode selector button
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: PopupMenuButton<String>(
+                onSelected: _switchMode,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.green[100],
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.green.shade300, width: 2),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(_getModeIcon(), size: 18, color: Colors.green[900]),
+                      const SizedBox(width: 6),
+                      Text(
+                        currentMode,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[900],
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_drop_down, color: Colors.green[900], size: 20),
+                    ],
+                  ),
+                ),
+                itemBuilder: (BuildContext context) => [
+                  PopupMenuItem<String>(
+                    value: 'Cycling',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.directions_bike,
+                          color: currentMode == 'Cycling' ? Colors.green : Colors.grey,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Cycling',
+                          style: TextStyle(
+                            fontWeight: currentMode == 'Cycling' 
+                                ? FontWeight.bold 
+                                : FontWeight.normal,
+                            color: currentMode == 'Cycling' ? Colors.green : Colors.black,
+                          ),
+                        ),
+                        if (currentMode == 'Cycling') ...[
+                          const Spacer(),
+                          const Icon(Icons.check, color: Colors.green, size: 20),
+                        ],
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem<String>(
+                    value: 'Walking',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.directions_walk,
+                          color: currentMode == 'Walking' ? Colors.blue : Colors.grey,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Walking',
+                          style: TextStyle(
+                            fontWeight: currentMode == 'Walking' 
+                                ? FontWeight.bold 
+                                : FontWeight.normal,
+                            color: currentMode == 'Walking' ? Colors.blue : Colors.black,
+                          ),
+                        ),
+                        if (currentMode == 'Walking') ...[
+                          const Spacer(),
+                          const Icon(Icons.check, color: Colors.blue, size: 20),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
         body: loading
             ? const Center(child: CircularProgressIndicator())
@@ -325,6 +462,63 @@ class _SearchScreenState extends State<SearchScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Show active preferences
+                      if (currentPreferences.isNotEmpty && currentPreferences.values.any((v) => v))
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: Colors.green[50],
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.green.shade200),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.tune, size: 16, color: Colors.green[700]),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Active Preferences',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                      color: Colors.green[900],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: currentPreferences.entries
+                                    .where((e) => e.value)
+                                    .map((e) => Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: Colors.green.shade300),
+                                          ),
+                                          child: Text(
+                                            e.key,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.green[800],
+                                            ),
+                                          ),
+                                        ))
+                                    .toList(),
+                              ),
+                            ],
+                          ),
+                        ),
+
                       TextField(
                         controller: fromController,
                         onTap: () {
@@ -436,9 +630,16 @@ class _SearchScreenState extends State<SearchScreen> {
                             borderRadius: BorderRadius.circular(10),
                           ),
                         ),
-                        child: const Text(
-                          'Search Routes',
-                          style: TextStyle(fontSize: 16, color: Colors.white),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(_getModeIcon(), color: Colors.white),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Search $currentMode Routes',
+                              style: const TextStyle(fontSize: 16, color: Colors.white),
+                            ),
+                          ],
                         ),
                       ),
                     ],
