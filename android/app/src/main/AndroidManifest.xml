@@ -3,6 +3,8 @@
     <!-- ✅ Location permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-feature android:name="android.hardware.sensor.accelerometer" />
+    <uses-feature android:name="android.hardware.sensor.compass" />
     
     <!-- ✅ Internet permission (required for Facebook login) -->
     <uses-permission android:name="android.permission.INTERNET"/>

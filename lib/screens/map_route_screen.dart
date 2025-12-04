@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui; // ADD THIS
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 
 class MapRouteScreen extends StatefulWidget {
   final Map<String, dynamic>? routeData;
@@ -22,6 +24,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   GoogleMapController? _controller;
   LatLng? _current;
   StreamSubscription<Position>? _positionStream;
+  StreamSubscription<CompassEvent>? _compassStream; // ADD THIS
 
   // Navigation state
   bool _isNavigating = false;
@@ -30,35 +33,136 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   double _totalDistanceRemaining = 0;
   String _estimatedTimeRemaining = '';
   bool _hasReachedDestination = false;
+  double _currentBearing = 0.0;
+  double _currentSpeed = 0.0; // ADD THIS to track movement speed
 
   // Route data
   List<LatLng> _routePoints = [];
   List<Map<String, dynamic>> _steps = [];
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
+  Set<Circle> _circles = {}; // ADD THIS for location circle
+  BitmapDescriptor? _startIcon;
+  BitmapDescriptor? _endIcon;
+  BitmapDescriptor? _userLocationIcon;
 
   // UI state
   bool _isFollowingUser = true;
   double _currentZoom = 17.0;
 
+  // Enhanced green palette
+  static const Color primaryGreen = Color(0xFF10B981);
+  static const Color darkGreen = Color(0xFF059669);
+  static const Color lightGreen = Color(0xFFD1FAE5);
+  static const Color accentGreen = Color(0xFF34D399);
+
   @override
   void initState() {
     super.initState();
+    _loadCustomMarkers();
     _loadRouteData();
     _determinePosition();
+    _startCompass(); // ADD THIS
   }
 
   @override
   void dispose() {
     _positionStream?.cancel();
+    _compassStream?.cancel(); // ADD THIS
     _controller?.dispose();
     super.dispose();
+  }
+
+  // ADD THIS METHOD
+  void _startCompass() {
+    _compassStream = FlutterCompass.events?.listen((CompassEvent event) {
+      if (event.heading != null && mounted) {
+        // Only use compass bearing when not moving fast
+        // When moving fast, GPS heading is more accurate
+        if (_currentSpeed < 1.5) { // Less than 1.5 m/s (5.4 km/h)
+          setState(() {
+            _currentBearing = event.heading!;
+          });
+          
+          // Update camera rotation if following user
+          if (_isFollowingUser && _current != null && _controller != null) {
+            _controller!.animateCamera(
+              CameraUpdate.newCameraPosition(
+                CameraPosition(
+                  target: _current!,
+                  zoom: _currentZoom,
+                  bearing: _currentBearing,
+                  tilt: _isNavigating ? 50 : 45,
+                ),
+              ),
+            );
+          }
+        }
+      }
+    });
+  }
+
+  Future<void> _loadCustomMarkers() async {
+    _startIcon = await BitmapDescriptor.fromAssetImage(
+      const ImageConfiguration(size: Size(48, 48)),
+      'assets/start_marker.png',
+    ).catchError((_) => BitmapDescriptor.defaultMarkerWithHue(140.0));
+
+    _endIcon = await BitmapDescriptor.fromAssetImage(
+      const ImageConfiguration(size: Size(48, 48)),
+      'assets/end_marker.png',
+    ).catchError((_) => BitmapDescriptor.defaultMarkerWithHue(0.0));
+  }
+
+  // ADD THIS METHOD - Creates custom user location icon
+  Future<void> _createUserLocationIcon() async {
+    final pictureRecorder = ui.PictureRecorder();
+    final canvas = Canvas(pictureRecorder);
+    final size = 60.0;
+
+    // Draw outer circle (white border)
+    final outerPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      Offset(size / 2, size / 2),
+      size / 2,
+      outerPaint,
+    );
+
+    // Draw inner circle (blue dot)
+    final innerPaint = Paint()
+      ..color = const Color(0xFF4285F4) // Google Maps blue
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      Offset(size / 2, size / 2),
+      (size / 2) - 4,
+      innerPaint,
+    );
+
+    // Draw direction indicator (small triangle)
+    final trianglePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    
+    final trianglePath = Path();
+    trianglePath.moveTo(size / 2, 8); // Top point
+    trianglePath.lineTo(size / 2 - 6, 20); // Bottom left
+    trianglePath.lineTo(size / 2 + 6, 20); // Bottom right
+    trianglePath.close();
+    canvas.drawPath(trianglePath, trianglePaint);
+
+    final picture = pictureRecorder.endRecording();
+    final image = await picture.toImage(size.toInt(), size.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    final uint8List = byteData!.buffer.asUint8List();
+
+    _userLocationIcon = BitmapDescriptor.fromBytes(uint8List);
   }
 
   void _loadRouteData() {
     if (widget.routeData == null) return;
 
-    // Load polyline points
     final polylinePoints = widget.routeData?['polylinePoints'] as List<dynamic>?;
     if (polylinePoints != null) {
       _routePoints = polylinePoints
@@ -66,34 +170,44 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
           .toList();
     }
 
-    // Load steps
     final steps = widget.routeData?['steps'] as List<dynamic>?;
     if (steps != null) {
       _steps = steps.map((s) => s as Map<String, dynamic>).toList();
     }
 
-    // Create polyline
     if (_routePoints.isNotEmpty) {
       _polylines.add(
         Polyline(
           polylineId: const PolylineId('route'),
           points: _routePoints,
-          color: Colors.blue,
-          width: 6,
+          color: primaryGreen,
+          width: 5,
           startCap: Cap.roundCap,
           endCap: Cap.roundCap,
         ),
       );
 
-      // Add destination marker
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('destination'),
-          position: _routePoints.last,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-          infoWindow: const InfoWindow(title: 'Destination'),
-        ),
-      );
+      if (_startIcon != null) {
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('start'),
+            position: _routePoints.first,
+            icon: _startIcon!,
+            infoWindow: const InfoWindow(title: 'Start'),
+          ),
+        );
+      }
+
+      if (_endIcon != null) {
+        _markers.add(
+          Marker(
+            markerId: const MarkerId('destination'),
+            position: _routePoints.last,
+            icon: _endIcon!,
+            infoWindow: const InfoWindow(title: 'Destination'),
+          ),
+        );
+      }
     }
 
     setState(() {});
@@ -122,10 +236,26 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       }
 
       final pos = await Geolocator.getCurrentPosition();
-      setState(() => _current = LatLng(pos.latitude, pos.longitude));
+      setState(() {
+        _current = LatLng(pos.latitude, pos.longitude);
+        _currentSpeed = pos.speed;
+        // Only use GPS heading if moving
+        if (pos.speed > 1.5) {
+          _currentBearing = pos.heading;
+        }
+      });
       
       _updateUserMarker(pos);
-      _controller?.animateCamera(CameraUpdate.newLatLngZoom(_current!, 15));
+      _controller?.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _current!,
+            zoom: 17,
+            bearing: _currentBearing,
+            tilt: 45,
+          ),
+        ),
+      );
     } catch (e) {
       _showError('Could not get location: $e');
     }
@@ -139,7 +269,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
+      distanceFilter: 3,
     );
 
     _positionStream = Geolocator.getPositionStream(
@@ -152,48 +282,78 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       _isNavigating = true;
     });
 
-    _showNotification('Navigation started', Icons.navigation, Colors.green);
+    _showNotification('Navigation started', Icons.navigation, primaryGreen);
   }
 
   void _onLocationUpdate(Position position) {
     setState(() {
       _current = LatLng(position.latitude, position.longitude);
+      _currentSpeed = position.speed; // UPDATE SPEED
+      
+      // Use GPS heading only when moving fast enough
+      // Otherwise compass will handle rotation
+      if (position.speed > 1.5) { // Moving faster than 1.5 m/s
+        _currentBearing = position.heading;
+      }
     });
 
     _updateUserMarker(position);
 
-    // Follow user
     if (_isFollowingUser && _controller != null) {
       _controller!.animateCamera(
         CameraUpdate.newCameraPosition(
           CameraPosition(
             target: LatLng(position.latitude, position.longitude),
             zoom: _currentZoom,
-            bearing: position.heading,
-            tilt: 45,
+            bearing: _currentBearing,
+            tilt: 50,
           ),
         ),
       );
     }
 
-    // Calculate navigation progress
     if (_routePoints.isNotEmpty && !_hasReachedDestination) {
       _calculateNavigationProgress(position);
     }
   }
 
   void _updateUserMarker(Position position) {
+    // Remove old marker and circle
     _markers.removeWhere((m) => m.markerId.value == 'user_location');
-    _markers.add(
-      Marker(
-        markerId: const MarkerId('user_location'),
-        position: LatLng(position.latitude, position.longitude),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        anchor: const Offset(0.5, 0.5),
-        rotation: position.heading,
-        flat: true,
+    _circles.clear();
+    
+    // Add pulsing accuracy circle
+    _circles.add(
+      Circle(
+        circleId: const CircleId('accuracy_circle'),
+        center: LatLng(position.latitude, position.longitude),
+        radius: position.accuracy,
+        fillColor: const Color(0xFF4285F4).withOpacity(0.1),
+        strokeColor: const Color(0xFF4285F4).withOpacity(0.3),
+        strokeWidth: 1,
       ),
     );
+    
+    // Add custom user location marker
+    if (_userLocationIcon != null) {
+      _markers.add(
+        Marker(
+          markerId: const MarkerId('user_location'),
+          position: LatLng(position.latitude, position.longitude),
+          icon: _userLocationIcon!,
+          anchor: const Offset(0.5, 0.5),
+          rotation: _currentBearing,
+          flat: true,
+          zIndex: 999,
+          infoWindow: InfoWindow(
+            title: 'You are here',
+            snippet: '${position.accuracy.toStringAsFixed(1)}m accuracy',
+          ),
+        ),
+      );
+    }
+    
+    setState(() {});
   }
 
   void _calculateNavigationProgress(Position currentPos) {
@@ -201,7 +361,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     final currentLatLng = LatLng(currentPos.latitude, currentPos.longitude);
     
-    // Get next step location
     final nextStepIndex = _currentStepIndex + 1;
     if (nextStepIndex < _routePoints.length) {
       final nextPoint = _routePoints[nextStepIndex];
@@ -213,12 +372,10 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         nextPoint.longitude,
       );
 
-      // Advance to next step if close enough (within 20 meters)
       if (_distanceToNextStep < 20 && _currentStepIndex < _steps.length - 1) {
         _advanceToNextStep();
       }
 
-      // Check if reached destination (within 15 meters)
       if (_currentStepIndex == _steps.length - 1) {
         final destDistance = _calculateDistance(
           currentLatLng.latitude,
@@ -243,7 +400,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     if (_currentStepIndex < _steps.length) {
       final step = _steps[_currentStepIndex];
       final instruction = step['instruction'] ?? 'Continue';
-      _showNotification(instruction, Icons.turn_right, Colors.blue);
+      _showNotification(instruction, Icons.turn_right, primaryGreen);
     }
 
     setState(() {});
@@ -261,11 +418,11 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.check_circle, color: Colors.green, size: 32),
-            SizedBox(width: 12),
-            Text('Arrived!'),
+            Icon(Icons.check_circle, color: primaryGreen, size: 32),
+            const SizedBox(width: 12),
+            const Text('Arrived!'),
           ],
         ),
         content: const Text('You have reached your destination.'),
@@ -286,7 +443,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     double totalDistance = 0;
     
     if (_current != null && _routePoints.isNotEmpty) {
-      // Distance to next route point
       if (_currentStepIndex < _routePoints.length) {
         totalDistance += _calculateDistance(
           _current!.latitude,
@@ -295,7 +451,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
           _routePoints[_currentStepIndex].longitude,
         );
 
-        // Add remaining segments
         for (int i = _currentStepIndex; i < _routePoints.length - 1; i++) {
           totalDistance += _calculateDistance(
             _routePoints[i].latitude,
@@ -309,7 +464,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     _totalDistanceRemaining = totalDistance;
 
-    // Estimate time (5 km/h walking speed)
     final hours = totalDistance / 5000;
     final minutes = (hours * 60).round();
     _estimatedTimeRemaining = minutes > 60
@@ -341,7 +495,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: Colors.red,
+        backgroundColor: Colors.red.shade600,
       ),
     );
   }
@@ -385,7 +539,8 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
           CameraPosition(
             target: _current!,
             zoom: _currentZoom,
-            tilt: 45,
+            bearing: _currentBearing,
+            tilt: 50,
           ),
         ),
       );
@@ -409,7 +564,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
               Navigator.of(context).pop();
               Navigator.of(context).pop();
             },
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: Colors.red.shade600),
             child: const Text('Stop'),
           ),
         ],
@@ -424,14 +579,16 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
-                // Google Map
                 GoogleMap(
                   initialCameraPosition: CameraPosition(
                     target: _current!,
-                    zoom: 15,
+                    zoom: 17,
+                    bearing: _currentBearing,
+                    tilt: 45,
                   ),
                   markers: _markers,
                   polylines: _polylines,
+                  circles: _circles, // ADD THIS
                   myLocationEnabled: false,
                   myLocationButtonEnabled: false,
                   compassEnabled: true,
@@ -443,52 +600,47 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
                   },
                 ),
 
-                // Top Navigation Info (when navigating)
                 if (_isNavigating) ...[
                   SafeArea(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Material(
-                        elevation: 8,
-                        borderRadius: BorderRadius.circular(16),
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(20),
                         child: Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(18),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(20),
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              // Current instruction
                               if (_currentStepIndex < _steps.length)
                                 Row(
                                   children: [
                                     Container(
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
-                                        color: Colors.blue[50],
+                                        color: lightGreen,
                                         borderRadius: BorderRadius.circular(12),
                                       ),
                                       child: Icon(
                                         Icons.navigation,
-                                        color: Colors.blue[700],
+                                        color: darkGreen,
                                         size: 28,
                                       ),
                                     ),
                                     const SizedBox(width: 12),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            _steps[_currentStepIndex]
-                                                    ['instruction'] ??
-                                                'Continue',
+                                            _steps[_currentStepIndex]['instruction'] ?? 'Continue',
                                             style: const TextStyle(
                                               fontSize: 16,
-                                              fontWeight: FontWeight.bold,
+                                              fontWeight: FontWeight.w600,
                                             ),
                                           ),
                                           const SizedBox(height: 4),
@@ -505,10 +657,8 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
                                   ],
                                 ),
                               const Divider(height: 24),
-                              // Stats
                               Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceAround,
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
                                 children: [
                                   _buildStatItem(
                                     Icons.access_time,
@@ -545,20 +695,19 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
                   ),
                 ],
 
-                // Bottom panel
                 Positioned(
                   left: 12,
                   right: 12,
                   bottom: 20,
                   child: Container(
-                    padding: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.1),
-                          blurRadius: 10,
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 12,
                           offset: const Offset(0, 4),
                         ),
                       ],
@@ -569,7 +718,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
                   ),
                 ),
 
-                // Recenter button (when navigating)
                 if (_isNavigating)
                   Positioned(
                     right: 16,
@@ -577,12 +725,11 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
                     child: FloatingActionButton(
                       heroTag: 'recenter',
                       onPressed: _toggleFollowUser,
-                      backgroundColor:
-                          _isFollowingUser ? Colors.blue[700] : Colors.white,
+                      backgroundColor: _isFollowingUser ? primaryGreen : Colors.white,
+                      elevation: 4,
                       child: Icon(
                         Icons.my_location,
-                        color:
-                            _isFollowingUser ? Colors.white : Colors.grey[700],
+                        color: _isFollowingUser ? Colors.white : Colors.grey[700],
                       ),
                     ),
                   ),
@@ -593,7 +740,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
   Widget _buildStartPanel() {
     final mode = widget.routeData?['mode'] ?? 'walking';
-    final routeName = widget.routeTitle ?? 'Walk — Osmeña Blvd';
+    final routeName = widget.routeTitle ?? 'Route';
     
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -602,7 +749,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
           children: [
             Icon(
               mode == 'walking' ? Icons.directions_walk : Icons.directions_bike,
-              color: Colors.blue[700],
+              color: primaryGreen,
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -616,25 +763,25 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
             ),
             IconButton(
               onPressed: () {
-                // Share functionality
-                _showNotification('Share feature coming soon', Icons.share, Colors.blue);
+                _showNotification('Share feature coming soon', Icons.share, primaryGreen);
               },
-              icon: const Icon(Icons.share),
+              icon: const Icon(Icons.share_outlined),
             ),
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
               child: ElevatedButton(
                 onPressed: _startNavigation,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green[700],
+                  backgroundColor: darkGreen,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  elevation: 0,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
                 child: const Row(
@@ -646,7 +793,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
                       'Start',
                       style: TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -667,15 +814,16 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         'Stop Navigation',
         style: TextStyle(
           fontSize: 16,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w600,
         ),
       ),
       style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.red[600],
+        backgroundColor: Colors.red.shade600,
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(vertical: 16),
+        elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
         ),
       ),
     );
@@ -684,7 +832,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   Widget _buildStatItem(IconData icon, String value, String label) {
     return Column(
       children: [
-        Icon(icon, color: Colors.blue[700], size: 20),
+        Icon(icon, color: primaryGreen, size: 20),
         const SizedBox(height: 4),
         Text(
           value,

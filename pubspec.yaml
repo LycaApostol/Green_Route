@@ -30,6 +30,7 @@ dependencies:
   flutter_google_places_sdk: 0.4.2+1
   permission_handler: ^11.3.0
   shared_preferences: ^2.2.2
+  flutter_compass: ^0.8.0
 
   # --- Networking ---
   http: ^1.2.1

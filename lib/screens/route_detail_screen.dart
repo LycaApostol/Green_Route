@@ -135,9 +135,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           'longitude': point['longitude'],
         }).toList() ?? [];
 
-    final primaryColor = mode == 'walking' ? Colors.blue : Colors.orange;
-    final lightColor = mode == 'walking' ? Colors.blue[50] : Colors.orange[50];
-    final darkColor = mode == 'walking' ? Colors.blue[700] : Colors.orange[700];
+    final primaryColor = const Color(0xFF34A853); // Green for all modes
+    final lightColor = const Color(0xFFE8F5E9); // Light green
+    final darkColor = const Color(0xFF2E7D32); // Dark green
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
@@ -232,7 +232,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                                     ),
                                   ],
                                 ),
-                                child: Row(
+                                child: const Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(
@@ -309,8 +309,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                                           polylinePoints.first['longitude'],
                                         ),
                                         icon: maps.BitmapDescriptor.defaultMarkerWithHue(
-                                          maps.BitmapDescriptor.hueGreen
+                                          120.0 // Bright green hue
                                         ),
+                                        infoWindow: const maps.InfoWindow(title: 'Start'),
                                       ),
                                       maps.Marker(
                                         markerId: const maps.MarkerId('end'),
@@ -319,8 +320,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                                           polylinePoints.last['longitude'],
                                         ),
                                         icon: maps.BitmapDescriptor.defaultMarkerWithHue(
-                                          maps.BitmapDescriptor.hueRed
+                                          0.0 // Bright red hue
                                         ),
+                                        infoWindow: const maps.InfoWindow(title: 'Destination'),
                                       ),
                                     },
                                     zoomControlsEnabled: false,
@@ -420,16 +422,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       child: ElevatedButton(
                         onPressed: () => _onStart(context),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[700],
+                          backgroundColor: const Color(0xFF2E7D32), // Dark green
                           foregroundColor: Colors.white,
                           minimumSize: const Size.fromHeight(56),
                           elevation: 4,
-                          shadowColor: Colors.green.withOpacity(0.5),
+                          shadowColor: const Color(0xFF34A853).withOpacity(0.5), // Green shadow
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: Row(
+                        child: const Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Icon(Icons.navigation, size: 24),
