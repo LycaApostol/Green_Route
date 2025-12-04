@@ -79,9 +79,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     }
     
     if (!mounted) return;
+    
+    // Pass route data to MapRouteScreen for live navigation
     Navigator.push(
       context, 
-      MaterialPageRoute(builder: (_) => const MapRouteScreen())
+      MaterialPageRoute(
+        builder: (_) => MapRouteScreen(
+          routeData: widget.routeData,
+          routeTitle: widget.title,
+        ),
+      ),
     );
   }
 
