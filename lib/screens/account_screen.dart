@@ -3,10 +3,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'settings_default_location.dart';
 import 'settings_notifications.dart';
 import 'settings_privacy.dart';
+import 'settings_edit_profile.dart';
 
-class AccountScreen extends StatelessWidget {
+class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
 
+  @override
+  State<AccountScreen> createState() => _AccountScreenState();
+}
+
+class _AccountScreenState extends State<AccountScreen> {
   Future<void> _logout(BuildContext context) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -30,7 +36,20 @@ class AccountScreen extends StatelessWidget {
     if (confirm != true) return;
 
     await FirebaseAuth.instance.signOut();
-    Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (route) => false);
+    if (context.mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (route) => false);
+    }
+  }
+
+  Future<void> _navigateToEditProfile() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const EditProfileScreen()),
+    );
+
+    if (result == true && mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -54,7 +73,6 @@ class AccountScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 🔹 Profile Header Card
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
@@ -66,57 +84,43 @@ class AccountScreen extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 36,
-                      backgroundImage: photoURL != null
-                          ? NetworkImage(photoURL)
-                          : const AssetImage('assets/avatar_placeholder.png')
-                              as ImageProvider,
+                      backgroundColor: Colors.grey[200],
+                      backgroundImage: photoURL != null ? NetworkImage(photoURL) : null,
+                      child: photoURL == null
+                          ? Icon(Icons.person, size: 36, color: Colors.grey[400])
+                          : null,
                     ),
                     const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 18,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            displayName,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          email,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey[600],
+                          const SizedBox(height: 4),
+                          Text(
+                            email,
+                            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
-
               const SizedBox(height: 24),
-
-              // 🔹 Personal Information Section
-              const Text(
-                "Personal Information",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
+              const Text("Personal Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 10),
               _settingsTile(
                 context,
                 icon: Icons.edit,
                 title: "Edit Profile",
-                trailing: Icons.edit_outlined,
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Edit Profile not yet implemented')),
-                  );
-                },
+                trailing: Icons.chevron_right,
+                onTap: _navigateToEditProfile,
               ),
               _settingsTile(
                 context,
@@ -128,17 +132,8 @@ class AccountScreen extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const DefaultLocationSettings()),
                 ),
               ),
-
               const SizedBox(height: 24),
-
-              // 🔹 App Settings Section
-              const Text(
-                "App Settings",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
+              const Text("App Settings", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 10),
               _settingsTile(
                 context,
@@ -171,10 +166,7 @@ class AccountScreen extends StatelessWidget {
                   );
                 },
               ),
-
               const SizedBox(height: 30),
-
-              // 🔹 Log Out Button
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -182,14 +174,9 @@ class AccountScreen extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.red[300],
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text(
-                    "Log Out",
-                    style: TextStyle(fontSize: 16, color: Colors.white),
-                  ),
+                  child: const Text("Log Out", style: TextStyle(fontSize: 16, color: Colors.white)),
                 ),
               ),
             ],

@@ -122,28 +122,36 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   Text('Added to favorites'),
                 ],
               ),
-              backgroundColor: Colors.red[400],
+              backgroundColor: Colors.pink[400],
               duration: const Duration(seconds: 2),
             ),
           );
         }
       } else {
-        // Remove from favorites
-        // Note: You'll need to implement removeFavorite in FirestoreService
-        // For now, we'll just show a message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.favorite_border, color: Colors.white, size: 20),
-                  SizedBox(width: 8),
-                  Text('Removed from favorites'),
-                ],
+        // Remove from favorites - find the document ID first
+        final favorites = await _db.streamFavorites(uid).first;
+        final favoriteToRemove = favorites.firstWhere(
+          (fav) => fav['title'] == widget.title && fav['subtitle'] == widget.subtitle,
+          orElse: () => {},
+        );
+        
+        if (favoriteToRemove.isNotEmpty && favoriteToRemove['id'] != null) {
+          await _db.removeFavorite(uid, favoriteToRemove['id']);
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Row(
+                  children: [
+                    Icon(Icons.favorite_border, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Text('Removed from favorites'),
+                  ],
+                ),
+                duration: Duration(seconds: 2),
               ),
-              duration: Duration(seconds: 2),
-            ),
-          );
+            );
+          }
         }
       }
     } catch (e) {
@@ -264,7 +272,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         child: Icon(
                           _isFavorite ? Icons.favorite : Icons.favorite_border,
                           key: ValueKey(_isFavorite),
-                          color: _isFavorite ? Colors.red : Colors.grey[700],
+                          color: _isFavorite ? const Color(0xFF2E7D32) : Colors.grey[700],
                           size: 26,
                         ),
                       ),

@@ -23,6 +23,7 @@ dependencies:
   google_sign_in: ^6.2.1
   flutter_facebook_auth: ^6.0.3
   flutter_tts: ^3.8.0
+  firebase_storage: ^12.4.10
 
   # --- Maps & Location ---
   google_maps_flutter: ^2.6.0
@@ -37,6 +38,9 @@ dependencies:
   # --- Networking ---
   http: ^1.2.1
   rename_app: ^1.6.5
+
+# --- Image handling ---
+  image_picker: ^1.0.7
 
 dev_dependencies:
   flutter_test:

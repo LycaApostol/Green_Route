@@ -7,6 +7,37 @@ class FavoritesScreen extends StatelessWidget {
   const FavoritesScreen({super.key});
   static final FirestoreService _db = FirestoreService();
 
+  Future<void> _removeFavorite(BuildContext context, String uid, String favoriteId, String title) async {
+    try {
+      await _db.removeFavorite(uid, favoriteId);
+      
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.favorite_border, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                Text('Removed "$title" from favorites'),
+              ],
+            ),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error removing favorite: $e'),
+            backgroundColor: Colors.red[400],
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -92,6 +123,7 @@ class FavoritesScreen extends StatelessWidget {
   ) {
     final title = favorite['title'] ?? 'Unknown Location';
     final subtitle = favorite['subtitle'] ?? '';
+    final favoriteId = favorite['id'] ?? '';
 
     return InkWell(
       onTap: () => Navigator.push(
@@ -108,17 +140,21 @@ class FavoritesScreen extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
         child: Row(
           children: [
-            // Heart icon
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.grey[300]!, width: 1),
-              ),
-              child: const Icon(
-                Icons.favorite,
-                color: Colors.red,
-                size: 20,
+            // Heart icon - Now tappable to remove
+            InkWell(
+              onTap: () => _removeFavorite(context, uid, favoriteId, title),
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFE8F5E9), width: 1.5),
+                ),
+                child: const Icon(
+                  Icons.favorite,
+                  color: Color(0xFF2E7D32),
+                  size: 20,
+                ),
               ),
             ),
             const SizedBox(width: 16),
