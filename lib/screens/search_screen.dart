@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'route_list_screen.dart';
 
-const String googleApiKey = "AIzaSyBuAq0UCRUt89jKicriPY8_KCfHWIGrzLc";
+const String googleApiKey = "";
 
 class SearchScreen extends StatefulWidget {
   final String? selectedMode;

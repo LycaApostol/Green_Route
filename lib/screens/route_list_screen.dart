@@ -6,7 +6,7 @@ import 'dart:math';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'route_detail_screen.dart';
 
-const String googleApiKey = "AIzaSyBuAq0UCRUt89jKicriPY8_KCfHWIGrzLc";
+const String googleApiKey = "";
 
 class RouteListScreen extends StatefulWidget {
   final maps.LatLng fromLocation;
