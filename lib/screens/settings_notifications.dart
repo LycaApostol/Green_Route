@@ -9,13 +9,9 @@ class NotificationsSettings extends StatefulWidget {
 }
 
 class _NotificationsSettingsState extends State<NotificationsSettings> {
-  bool _pushNotifications = true;
-  bool _weatherAlerts = true;
-  bool _severeWeatherAlerts = true;
-  bool _dailyForecast = false;
-  bool _rainAlerts = true;
-  bool _temperatureAlerts = false;
-  String _notificationTime = '08:00';
+  bool _allowNotifications = true;
+  bool _arrivalNotifications = true;
+  String _soundVibration = 'Default';
   bool _isLoading = true;
 
   @override
@@ -27,43 +23,59 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _pushNotifications = prefs.getBool('push_notifications') ?? true;
-      _weatherAlerts = prefs.getBool('weather_alerts') ?? true;
-      _severeWeatherAlerts = prefs.getBool('severe_weather_alerts') ?? true;
-      _dailyForecast = prefs.getBool('daily_forecast') ?? false;
-      _rainAlerts = prefs.getBool('rain_alerts') ?? true;
-      _temperatureAlerts = prefs.getBool('temperature_alerts') ?? false;
-      _notificationTime = prefs.getString('notification_time') ?? '08:00';
+      _allowNotifications = prefs.getBool('allow_notifications') ?? true;
+      _arrivalNotifications = prefs.getBool('arrival_notifications') ?? true;
+      _soundVibration = prefs.getString('sound_vibration') ?? 'Default';
       _isLoading = false;
     });
   }
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('push_notifications', _pushNotifications);
-    await prefs.setBool('weather_alerts', _weatherAlerts);
-    await prefs.setBool('severe_weather_alerts', _severeWeatherAlerts);
-    await prefs.setBool('daily_forecast', _dailyForecast);
-    await prefs.setBool('rain_alerts', _rainAlerts);
-    await prefs.setBool('temperature_alerts', _temperatureAlerts);
-    await prefs.setString('notification_time', _notificationTime);
+    await prefs.setBool('allow_notifications', _allowNotifications);
+    await prefs.setBool('arrival_notifications', _arrivalNotifications);
+    await prefs.setString('sound_vibration', _soundVibration);
   }
 
-  Future<void> _selectTime() async {
-    final TimeOfDay? picked = await showTimePicker(
+  Future<void> _showSoundVibrationPicker() async {
+    final options = ['Default', 'Vibrate Only', 'Silent', 'Custom'];
+    
+    await showModalBottomSheet(
       context: context,
-      initialTime: TimeOfDay(
-        hour: int.parse(_notificationTime.split(':')[0]),
-        minute: int.parse(_notificationTime.split(':')[1]),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text(
+                'Sound & Vibration',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            ...options.map((option) => ListTile(
+              title: Text(option),
+              trailing: _soundVibration == option
+                  ? Icon(Icons.check, color: Colors.green[700])
+                  : null,
+              onTap: () {
+                setState(() => _soundVibration = option);
+                _saveSettings();
+                Navigator.pop(context);
+              },
+            )),
+          ],
+        ),
       ),
     );
-
-    if (picked != null) {
-      setState(() {
-        _notificationTime = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
-      });
-      await _saveSettings();
-    }
   }
 
   @override
@@ -72,9 +84,13 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
       return Scaffold(
         backgroundColor: Colors.white,
         appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context),
+          ),
           title: const Text('Notifications'),
           backgroundColor: Colors.white,
-          foregroundColor: Colors.green[900],
+          foregroundColor: Colors.black,
           elevation: 0,
         ),
         body: const Center(child: CircularProgressIndicator()),
@@ -84,189 +100,63 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: const Text('Notifications'),
         backgroundColor: Colors.white,
-        foregroundColor: Colors.green[900],
+        foregroundColor: Colors.black,
         elevation: 0,
       ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(18.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Notification Settings',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Manage your notification preferences',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Master Toggle
-            _buildSection(
-              title: 'General',
-              children: [
-                _buildSwitchTile(
-                  icon: Icons.notifications_active,
-                  title: 'Push Notifications',
-                  subtitle: 'Enable all notifications',
-                  value: _pushNotifications,
-                  onChanged: (value) {
-                    setState(() {
-                      _pushNotifications = value;
-                      if (!value) {
-                        _weatherAlerts = false;
-                        _severeWeatherAlerts = false;
-                        _dailyForecast = false;
-                        _rainAlerts = false;
-                        _temperatureAlerts = false;
-                      }
-                    });
-                    _saveSettings();
-                  },
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // Weather Alerts Section
-            _buildSection(
-              title: 'Weather Alerts',
-              children: [
-                _buildSwitchTile(
-                  icon: Icons.cloud,
-                  title: 'General Weather Alerts',
-                  subtitle: 'Get notified about weather changes',
-                  value: _weatherAlerts,
-                  enabled: _pushNotifications,
-                  onChanged: (value) {
-                    setState(() => _weatherAlerts = value);
-                    _saveSettings();
-                  },
-                ),
-                _buildSwitchTile(
-                  icon: Icons.warning_amber,
-                  title: 'Severe Weather Alerts',
-                  subtitle: 'Critical weather warnings',
-                  value: _severeWeatherAlerts,
-                  enabled: _pushNotifications,
-                  onChanged: (value) {
-                    setState(() => _severeWeatherAlerts = value);
-                    _saveSettings();
-                  },
-                ),
-                _buildSwitchTile(
-                  icon: Icons.umbrella,
-                  title: 'Rain Alerts',
-                  subtitle: 'Notify when rain is expected',
-                  value: _rainAlerts,
-                  enabled: _pushNotifications,
-                  onChanged: (value) {
-                    setState(() => _rainAlerts = value);
-                    _saveSettings();
-                  },
-                ),
-                _buildSwitchTile(
-                  icon: Icons.thermostat,
-                  title: 'Temperature Alerts',
-                  subtitle: 'Notify about extreme temperatures',
-                  value: _temperatureAlerts,
-                  enabled: _pushNotifications,
-                  onChanged: (value) {
-                    setState(() => _temperatureAlerts = value);
-                    _saveSettings();
-                  },
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // Daily Forecast Section
-            _buildSection(
-              title: 'Daily Updates',
-              children: [
-                _buildSwitchTile(
-                  icon: Icons.wb_sunny,
-                  title: 'Daily Forecast',
-                  subtitle: 'Receive daily weather forecast',
-                  value: _dailyForecast,
-                  enabled: _pushNotifications,
-                  onChanged: (value) {
-                    setState(() => _dailyForecast = value);
-                    _saveSettings();
-                  },
-                ),
-                Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  decoration: BoxDecoration(
-                    color: _dailyForecast && _pushNotifications
-                        ? Colors.green[50]
-                        : Colors.grey[50],
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ListTile(
-                    enabled: _dailyForecast && _pushNotifications,
-                    leading: Icon(
-                      Icons.access_time,
-                      color: _dailyForecast && _pushNotifications
-                          ? Colors.green[700]
-                          : Colors.grey,
-                    ),
-                    title: const Text('Notification Time'),
-                    subtitle: Text(_notificationTime),
-                    trailing: Icon(
-                      Icons.chevron_right,
-                      color: _dailyForecast && _pushNotifications
-                          ? Colors.grey[600]
-                          : Colors.grey[300],
-                    ),
-                    onTap: _dailyForecast && _pushNotifications
-                        ? _selectTime
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 30),
-
-            // Test Notification Button
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _pushNotifications
-                    ? () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Test notification sent!'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      }
-                    : null,
-                icon: const Icon(Icons.notifications_outlined),
-                label: const Text('Send Test Notification'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.green[700],
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  side: BorderSide(
-                    color: _pushNotifications ? Colors.green : Colors.grey,
-                  ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'NOTIFICATION SETTINGS',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                  letterSpacing: 0.5,
                 ),
               ),
+            ),
+            _buildNotificationTile(
+              title: 'Allow Notifications',
+              subtitle: 'Allow app to detect your location automatically',
+              value: _allowNotifications,
+              onChanged: (value) {
+                setState(() {
+                  _allowNotifications = value;
+                  if (!value) {
+                    _arrivalNotifications = false;
+                  }
+                });
+                _saveSettings();
+              },
+            ),
+            const Divider(height: 1, indent: 16),
+            _buildNotificationTile(
+              title: 'Arrival Notifications',
+              subtitle: 'When you reach your destination',
+              value: _arrivalNotifications,
+              enabled: _allowNotifications,
+              onChanged: (value) {
+                setState(() => _arrivalNotifications = value);
+                _saveSettings();
+              },
+            ),
+            const Divider(height: 1, indent: 16),
+            _buildSettingTile(
+              title: 'Sound & Vibration',
+              subtitle: 'Customize notification sounds',
+              trailing: _soundVibration,
+              enabled: _allowNotifications,
+              onTap: _allowNotifications ? _showSoundVibrationPicker : null,
             ),
           ],
         ),
@@ -274,28 +164,7 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
     );
   }
 
-  Widget _buildSection({
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 12),
-        ...children,
-      ],
-    );
-  }
-
-  Widget _buildSwitchTile({
-    required IconData icon,
+  Widget _buildNotificationTile({
     required String title,
     required String subtitle,
     required bool value,
@@ -303,33 +172,92 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
     bool enabled = true,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: enabled ? Colors.green[50] : Colors.grey[50],
-        borderRadius: BorderRadius.circular(12),
-      ),
+      color: Colors.white,
       child: SwitchListTile(
-        secondary: Icon(
-          icon,
-          color: enabled ? Colors.green[700] : Colors.grey,
-        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         title: Text(
           title,
           style: TextStyle(
-            fontSize: 15,
-            color: enabled ? Colors.black : Colors.grey,
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: enabled ? Colors.black87 : Colors.grey[400],
           ),
         ),
-        subtitle: Text(
-          subtitle,
-          style: TextStyle(
-            fontSize: 12,
-            color: enabled ? Colors.grey[600] : Colors.grey[400],
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 13,
+              color: enabled ? Colors.grey[600] : Colors.grey[400],
+            ),
           ),
         ),
         value: value,
-        activeThumbColor: Colors.green,
+        activeColor: Colors.green[600],
         onChanged: enabled ? onChanged : null,
+      ),
+    );
+  }
+
+  Widget _buildSettingTile({
+    required String title,
+    required String subtitle,
+    required String trailing,
+    required VoidCallback? onTap,
+    bool enabled = true,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        color: Colors.white,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: enabled ? Colors.black87 : Colors.grey[400],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: enabled ? Colors.grey[600] : Colors.grey[400],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  trailing,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: enabled ? Colors.grey[700] : Colors.grey[400],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.chevron_right,
+                  color: enabled ? Colors.grey[400] : Colors.grey[300],
+                  size: 20,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
