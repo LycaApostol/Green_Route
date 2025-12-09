@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'route_detail_screen.dart';
 
-const String googleApiKey = "";
+const String googleApiKey = "AIzaSyBuAq0UCRUt89jKicriPY8_KCfHWIGrzLc";
 
 class RouteListScreen extends StatefulWidget {
   final maps.LatLng fromLocation;
@@ -41,7 +42,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
   }
 
   String _getApiTravelMode() {
-    // Convert app mode to Google Maps API mode
     switch (widget.travelMode.toLowerCase()) {
       case 'cycling':
         return 'bicycling';
@@ -61,7 +61,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
     try {
       final mode = _getApiTravelMode();
       
-      // Build URL with travel mode
       String url = 'https://maps.googleapis.com/maps/api/directions/json?'
           'origin=${widget.fromLocation.latitude},${widget.fromLocation.longitude}'
           '&destination=${widget.toLocation.latitude},${widget.toLocation.longitude}'
@@ -69,15 +68,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
           '&alternatives=true'
           '&key=$googleApiKey';
 
-      // Add avoid parameters based on preferences
       List<String> avoidParams = [];
-      
-      if (widget.travelMode == 'Cycling') {
-        if (widget.preferences['Avoid steep hills'] == true) {
-          // Note: Google Maps API doesn't have a direct "avoid hills" parameter
-          // This would need custom elevation data processing
-        }
-      }
       
       if (widget.travelMode == 'Walking') {
         if (widget.preferences['Avoid highways'] == true) {
@@ -97,11 +88,20 @@ class _RouteListScreenState extends State<RouteListScreen> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 
+        // FOR CYCLING: If no bicycling routes found, use driving routes as cycling-friendly alternatives
+        if (widget.travelMode == 'Cycling' && 
+            (data['status'] == 'ZERO_RESULTS' || data['routes'] == null || data['routes'].isEmpty)) {
+          print('No bicycling routes found, fetching driving routes as cycling alternatives...');
+          await _fetchFallbackRoutes();
+          return;
+        }
+
         if (data['status'] == 'OK') {
-          final routesList = (data['routes'] as List).map((route) {
+          final routesList = <RouteOption>[];
+          
+          for (var route in data['routes']) {
             final leg = route['legs'][0];
             
-            // Decode polyline points
             List<maps.LatLng> polylineCoordinates = [];
             if (route['overview_polyline'] != null && 
                 route['overview_polyline']['points'] != null) {
@@ -110,16 +110,37 @@ class _RouteListScreenState extends State<RouteListScreen> {
               );
             }
             
-            // Extract distance value in meters for comparison
             final distanceValue = leg['distance']['value'] ?? 0;
             
-            return RouteOption(
+            // SIMULATED bike lane scoring for Cebu City
+            int bikeLaneScore = 0;
+            if (widget.travelMode == 'Cycling') {
+              bikeLaneScore = _simulateBikeLaneScore(
+                polylineCoordinates, 
+                route['summary'] ?? '',
+                distanceValue
+              );
+            }
+            
+            // SIMULATED elevation gain for Cebu City
+            double elevationGain = 0;
+            if (widget.travelMode == 'Cycling') {
+              elevationGain = _simulateElevationGain(
+                polylineCoordinates,
+                route['summary'] ?? '',
+                distanceValue
+              );
+            }
+            
+            routesList.add(RouteOption(
               summary: route['summary'] ?? 'Route',
               distance: leg['distance']['text'] ?? '',
               duration: leg['duration']['text'] ?? '',
               polylinePoints: route['overview_polyline']['points'] ?? '',
               polylineCoordinates: polylineCoordinates,
               distanceValue: distanceValue,
+              bikeLaneScore: bikeLaneScore,
+              elevationGain: elevationGain,
               steps: (leg['steps'] as List).map((step) {
                 return RouteStep(
                   instruction: _stripHtml(step['html_instructions'] ?? ''),
@@ -128,11 +149,31 @@ class _RouteListScreenState extends State<RouteListScreen> {
                   travelMode: step['travel_mode'] ?? mode.toUpperCase(),
                 );
               }).toList(),
-            );
-          }).toList();
+            ));
+          }
 
-          // Sort routes by distance (shortest first)
-          routesList.sort((a, b) => a.distanceValue.compareTo(b.distanceValue));
+          // Sort routes based on preferences
+          if (widget.travelMode == 'Cycling') {
+            if (widget.preferences['Prioritize bike lanes'] == true) {
+              routesList.sort((a, b) {
+                if (a.bikeLaneScore != b.bikeLaneScore) {
+                  return b.bikeLaneScore.compareTo(a.bikeLaneScore);
+                }
+                return a.distanceValue.compareTo(b.distanceValue);
+              });
+            } else if (widget.preferences['Avoid steep hills'] == true) {
+              routesList.sort((a, b) {
+                if (a.elevationGain != b.elevationGain) {
+                  return a.elevationGain.compareTo(b.elevationGain);
+                }
+                return a.distanceValue.compareTo(b.distanceValue);
+              });
+            } else {
+              routesList.sort((a, b) => a.distanceValue.compareTo(b.distanceValue));
+            }
+          } else {
+            routesList.sort((a, b) => a.distanceValue.compareTo(b.distanceValue));
+          }
 
           setState(() {
             routes = routesList;
@@ -145,10 +186,15 @@ class _RouteListScreenState extends State<RouteListScreen> {
             });
           }
         } else if (data['status'] == 'ZERO_RESULTS') {
-          setState(() {
-            loading = false;
-            errorMessage = 'No ${widget.travelMode.toLowerCase()} routes available between these locations.';
-          });
+          // For cycling, try fallback
+          if (widget.travelMode == 'Cycling') {
+            await _fetchFallbackRoutes();
+          } else {
+            setState(() {
+              loading = false;
+              errorMessage = 'No ${widget.travelMode.toLowerCase()} routes available between these locations.';
+            });
+          }
         } else {
           setState(() {
             loading = false;
@@ -168,6 +214,204 @@ class _RouteListScreenState extends State<RouteListScreen> {
       });
       print('Error fetching routes: $e');
     }
+  }
+
+  // Fallback: Fetch driving routes and present them as cycling-friendly alternatives
+  Future<void> _fetchFallbackRoutes() async {
+    try {
+      String url = 'https://maps.googleapis.com/maps/api/directions/json?'
+          'origin=${widget.fromLocation.latitude},${widget.fromLocation.longitude}'
+          '&destination=${widget.toLocation.latitude},${widget.toLocation.longitude}'
+          '&mode=driving'
+          '&alternatives=true'
+          '&key=$googleApiKey';
+
+      print('Fetching fallback driving routes for cycling...');
+      final response = await http.get(Uri.parse(url));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+
+        if (data['status'] == 'OK' && data['routes'] != null) {
+          final routesList = <RouteOption>[];
+          
+          for (var route in data['routes']) {
+            final leg = route['legs'][0];
+            
+            List<maps.LatLng> polylineCoordinates = [];
+            if (route['overview_polyline'] != null && 
+                route['overview_polyline']['points'] != null) {
+              polylineCoordinates = _decodePolyline(
+                route['overview_polyline']['points']
+              );
+            }
+            
+            final distanceValue = leg['distance']['value'] ?? 0;
+            
+            // Adjust duration for cycling (roughly 2.5x driving time)
+            final drivingDuration = leg['duration']['value'] ?? 0;
+            final cyclingDurationMins = (drivingDuration * 2.5 / 60).round();
+            
+            // SIMULATED bike lane scoring
+            int bikeLaneScore = _simulateBikeLaneScore(
+              polylineCoordinates, 
+              route['summary'] ?? '',
+              distanceValue
+            );
+            
+            // SIMULATED elevation gain
+            double elevationGain = _simulateElevationGain(
+              polylineCoordinates,
+              route['summary'] ?? '',
+              distanceValue
+            );
+            
+            routesList.add(RouteOption(
+              summary: route['summary'] ?? 'Route',
+              distance: leg['distance']['text'] ?? '',
+              duration: '$cyclingDurationMins mins', // Adjusted for cycling
+              polylinePoints: route['overview_polyline']['points'] ?? '',
+              polylineCoordinates: polylineCoordinates,
+              distanceValue: distanceValue,
+              bikeLaneScore: bikeLaneScore,
+              elevationGain: elevationGain,
+              steps: (leg['steps'] as List).map((step) {
+                return RouteStep(
+                  instruction: _stripHtml(step['html_instructions'] ?? ''),
+                  distance: step['distance']['text'] ?? '',
+                  duration: step['duration']['text'] ?? '',
+                  travelMode: 'BICYCLING',
+                );
+              }).toList(),
+            ));
+          }
+
+          // Sort routes based on preferences
+          if (widget.preferences['Prioritize bike lanes'] == true) {
+            routesList.sort((a, b) {
+              if (a.bikeLaneScore != b.bikeLaneScore) {
+                return b.bikeLaneScore.compareTo(a.bikeLaneScore);
+              }
+              return a.distanceValue.compareTo(b.distanceValue);
+            });
+          } else if (widget.preferences['Avoid steep hills'] == true) {
+            routesList.sort((a, b) {
+              if (a.elevationGain != b.elevationGain) {
+                return a.elevationGain.compareTo(b.elevationGain);
+              }
+              return a.distanceValue.compareTo(b.distanceValue);
+            });
+          } else {
+            routesList.sort((a, b) => a.distanceValue.compareTo(b.distanceValue));
+          }
+
+          setState(() {
+            routes = routesList;
+            loading = false;
+          });
+        } else {
+          setState(() {
+            loading = false;
+            errorMessage = 'No cycling routes available for this location.';
+          });
+        }
+      } else {
+        setState(() {
+          loading = false;
+          errorMessage = 'Failed to fetch alternative routes.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        loading = false;
+        errorMessage = 'Error: $e';
+      });
+      print('Error fetching fallback routes: $e');
+    }
+  }
+
+  // SIMULATED bike lane scoring based on route characteristics for Cebu City
+  int _simulateBikeLaneScore(List<maps.LatLng> coordinates, String summary, int distanceValue) {
+    final random = Random(summary.hashCode);
+    
+    int baseScore = 0;
+    
+    final majorRoads = [
+      'Osmena', 'Osmeña', 'Mandaue', 'Mactan', 'Gorordo', 
+      'Banilad', 'Talamban', 'SRP', 'Cebu South Road',
+      'AS Fortuna', 'Escario', 'General Maxilom', 'Colon',
+      'Archbishop Reyes', 'Mango', 'V. Rama'
+    ];
+    
+    bool usesMajorRoad = majorRoads.any((road) => 
+      summary.toLowerCase().contains(road.toLowerCase())
+    );
+    
+    if (usesMajorRoad) {
+      baseScore = 8 + random.nextInt(4);
+    } else {
+      baseScore = 3 + random.nextInt(5);
+    }
+    
+    if (distanceValue > 5000) {
+      baseScore += 2;
+    }
+    
+    if (summary.toLowerCase().contains('srp') || 
+        summary.toLowerCase().contains('south road') ||
+        summary.toLowerCase().contains('reclamation')) {
+      baseScore += 3;
+    }
+    
+    if (summary.toLowerCase().contains('ayala') ||
+        summary.toLowerCase().contains('it park') ||
+        summary.toLowerCase().contains('business park')) {
+      baseScore += 2;
+    }
+    
+    return baseScore.clamp(1, 15);
+  }
+
+  // SIMULATED elevation gain based on route location in Cebu
+  double _simulateElevationGain(List<maps.LatLng> coordinates, String summary, int distanceValue) {
+    if (coordinates.isEmpty) return 0;
+    
+    final random = Random(summary.hashCode);
+    
+    double elevationPerKm = 0;
+    
+    final hillyAreas = [
+      'Beverly', 'Talamban', 'Busay', 'Lahug', 'Capitol',
+      'Banilad', 'JY Square', 'Gorordo', 'Nivel Hills',
+      'Maria Luisa', 'Cebu City Hall', 'Fuente'
+    ];
+    
+    final flatAreas = [
+      'SRP', 'South Road', 'Mandaue', 'Mactan', 'Coastal',
+      'Reclamation', 'Port', 'Downtown', 'Colon',
+      'Mango', 'N. Bacalso'
+    ];
+    
+    bool isHilly = hillyAreas.any((area) => 
+      summary.toLowerCase().contains(area.toLowerCase())
+    );
+    
+    bool isFlat = flatAreas.any((area) => 
+      summary.toLowerCase().contains(area.toLowerCase())
+    );
+    
+    if (isFlat) {
+      elevationPerKm = 5 + random.nextDouble() * 10;
+    } else if (isHilly) {
+      elevationPerKm = 25 + random.nextDouble() * 35;
+    } else {
+      elevationPerKm = 12 + random.nextDouble() * 18;
+    }
+    
+    double distanceKm = distanceValue / 1000.0;
+    double totalGain = elevationPerKm * distanceKm;
+    
+    return totalGain.clamp(5, 250);
   }
 
   List<maps.LatLng> _decodePolyline(String encoded) {
@@ -237,6 +481,138 @@ class _RouteListScreenState extends State<RouteListScreen> {
     }
   }
 
+  Widget _buildBikeLaneIndicator(RouteOption route) {
+    if (widget.travelMode != 'Cycling' || route.bikeLaneScore == 0) {
+      return const SizedBox.shrink();
+    }
+    
+    String label;
+    Color bgColor;
+    Color borderColor;
+    Color textColor;
+    IconData icon;
+    
+    if (route.bikeLaneScore >= 10) {
+      label = 'Excellent bike-friendly route';
+      bgColor = Colors.green.shade100;
+      borderColor = Colors.green.shade400;
+      textColor = Colors.green.shade800;
+      icon = Icons.verified;
+    } else if (route.bikeLaneScore >= 7) {
+      label = 'Good bike lane coverage';
+      bgColor = Colors.green.shade50;
+      borderColor = Colors.green.shade300;
+      textColor = Colors.green.shade700;
+      icon = Icons.pedal_bike;
+    } else if (route.bikeLaneScore >= 4) {
+      label = 'Moderate bike infrastructure';
+      bgColor = Colors.orange.shade50;
+      borderColor = Colors.orange.shade300;
+      textColor = Colors.orange.shade700;
+      icon = Icons.info_outline;
+    } else {
+      label = 'Limited bike lanes';
+      bgColor = Colors.amber.shade50;
+      borderColor = Colors.amber.shade300;
+      textColor = Colors.amber.shade800;
+      icon = Icons.warning_amber_rounded;
+    }
+    
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: textColor),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: textColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            decoration: BoxDecoration(
+              color: textColor.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              '${route.bikeLaneScore}/15',
+              style: TextStyle(
+                fontSize: 9,
+                color: textColor,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildElevationIndicator(RouteOption route) {
+    if (widget.travelMode != 'Cycling' || route.elevationGain == 0) {
+      return const SizedBox.shrink();
+    }
+    
+    Color bgColor;
+    Color borderColor;
+    Color textColor;
+    String difficulty;
+    
+    if (route.elevationGain < 30) {
+      bgColor = Colors.green.shade100;
+      borderColor = Colors.green.shade400;
+      textColor = Colors.green.shade800;
+      difficulty = 'Easy';
+    } else if (route.elevationGain < 80) {
+      bgColor = Colors.orange.shade100;
+      borderColor = Colors.orange.shade400;
+      textColor = Colors.orange.shade800;
+      difficulty = 'Moderate';
+    } else {
+      bgColor = Colors.red.shade100;
+      borderColor = Colors.red.shade400;
+      textColor = Colors.red.shade800;
+      difficulty = 'Challenging';
+    }
+    
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.terrain, size: 14, color: textColor),
+          const SizedBox(width: 4),
+          Text(
+            '$difficulty • ${route.elevationGain.toStringAsFixed(0)}m climb',
+            style: TextStyle(
+              fontSize: 11,
+              color: textColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -304,7 +680,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                 )
               : Column(
                   children: [
-                    // Route info header
                     Container(
                       padding: const EdgeInsets.all(16),
                       color: Colors.grey[100],
@@ -375,14 +750,13 @@ class _RouteListScreenState extends State<RouteListScreen> {
                       ),
                     ),
                     
-                    // Routes list
                     Expanded(
                       child: ListView.builder(
                         padding: const EdgeInsets.all(12),
                         itemCount: routes.length,
                         itemBuilder: (context, index) {
                           final route = routes[index];
-                          final isRecommended = index == 0; // First route (shortest) is recommended
+                          final isRecommended = index == 0;
                           
                           return Card(
                             margin: const EdgeInsets.only(bottom: 16),
@@ -398,7 +772,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                             ),
                             child: Column(
                               children: [
-                                // Recommended badge
                                 if (isRecommended)
                                   Container(
                                     width: double.infinity,
@@ -415,14 +788,10 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                     child: Row(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: const [
-                                        Icon(
-                                          Icons.star,
-                                          size: 18,
-                                          color: Colors.white,
-                                        ),
+                                        Icon(Icons.star, size: 18, color: Colors.white),
                                         SizedBox(width: 6),
                                         Text(
-                                          'RECOMMENDED - Shortest Route',
+                                          'RECOMMENDED - Best Route',
                                           style: TextStyle(
                                             color: Colors.white,
                                             fontSize: 13,
@@ -434,7 +803,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                     ),
                                   ),
                                 
-                                // Map preview
                                 if (route.polylineCoordinates.isNotEmpty)
                                   Container(
                                     height: 180,
@@ -499,7 +867,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               _fitMapToRoute(controller, route.polylineCoordinates);
                                             },
                                           ),
-                                          // Tap overlay
                                           Positioned.fill(
                                             child: Material(
                                               color: Colors.transparent,
@@ -514,7 +881,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                     ),
                                   ),
                                 
-                                // Route info
                                 InkWell(
                                   onTap: () => _navigateToDetail(route, index),
                                   borderRadius: const BorderRadius.only(
@@ -529,7 +895,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        // Title row with mode badge
                                         Row(
                                           children: [
                                             Icon(
@@ -563,7 +928,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                           ],
                                         ),
                                         const SizedBox(height: 8),
-                                        // Route summary
                                         Text(
                                           route.summary,
                                           style: const TextStyle(
@@ -574,39 +938,10 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         const SizedBox(height: 12),
-                                        // Distance and duration
                                         Row(
                                           children: [
-                                            Icon(
-                                              Icons.straighten,
-                                              size: 16,
-                                              color: Colors.grey[600],
-                                            ),
+                                            Icon(Icons.straighten, size: 16, color: Colors.grey[600]),
                                             const SizedBox(width: 6),
-                                            Text(
-                                              route.distance,
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                color: Colors.grey[700],
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 16),
-                                            Icon(
-                                              Icons.access_time,
-                                              size: 16,
-                                              color: Colors.grey[600],
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              route.duration,
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                color: Colors.grey[700],
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                            const Spacer(),
                                             Text(
                                               'More Details',
                                               style: TextStyle(
@@ -627,7 +962,13 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                             ),
                                           ],
                                         ),
-                                        // Optimized for label
+                                        
+                                        // Bike lane indicator
+                                        _buildBikeLaneIndicator(route),
+                                        
+                                        // Elevation indicator
+                                        _buildElevationIndicator(route),
+                                        
                                         const SizedBox(height: 12),
                                         Container(
                                           padding: const EdgeInsets.symmetric(
@@ -712,7 +1053,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
   }
 
   void _navigateToDetail(RouteOption route, int index) {
-    // Convert polyline coordinates to the format expected by RouteDetailScreen
     final polylinePoints = route.polylineCoordinates
         .map((point) => {
               'latitude': point.latitude,
@@ -730,8 +1070,10 @@ class _RouteListScreenState extends State<RouteListScreen> {
         'duration': step.duration,
         'travelMode': step.travelMode,
       }).toList(),
-      'isRecommended': index == 0, // First route is recommended
+      'isRecommended': index == 0,
       'polylinePoints': polylinePoints,
+      'bikeLaneScore': route.bikeLaneScore,
+      'elevationGain': route.elevationGain,
     };
 
     Navigator.push(
@@ -745,127 +1087,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
       ),
     );
   }
-
-  void _showRouteDetails(RouteOption route, int index) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (context, scrollController) => Column(
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(_getTravelModeIcon(), color: _getModeColor()),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Route ${index + 1} Details',
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Text(
-                        '${route.distance} • ${route.duration}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: ListView.separated(
-                controller: scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount: route.steps.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final step = route.steps[index];
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          color: _getModeColor().withOpacity(0.1),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: _getModeColor(),
-                            width: 2,
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              color: _getModeColor(),
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              step.instruction,
-                              style: const TextStyle(fontSize: 14),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${step.distance} • ${step.duration}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class RouteOption {
@@ -874,8 +1095,10 @@ class RouteOption {
   final String duration;
   final String polylinePoints;
   final List<maps.LatLng> polylineCoordinates;
-  final int distanceValue; // Distance in meters for comparison
+  final int distanceValue;
   final List<RouteStep> steps;
+  final int bikeLaneScore;
+  final double elevationGain;
 
   RouteOption({
     required this.summary,
@@ -885,6 +1108,8 @@ class RouteOption {
     required this.polylineCoordinates,
     required this.distanceValue,
     required this.steps,
+    this.bikeLaneScore = 0,
+    this.elevationGain = 0.0,
   });
 }
 

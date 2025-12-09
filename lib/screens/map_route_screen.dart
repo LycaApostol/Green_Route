@@ -116,48 +116,67 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
   // ADD THIS METHOD - Creates custom user location icon
   Future<void> _createUserLocationIcon() async {
-    final pictureRecorder = ui.PictureRecorder();
-    final canvas = Canvas(pictureRecorder);
-    final size = 60.0;
+    try {
+      final pictureRecorder = ui.PictureRecorder();
+      final canvas = Canvas(pictureRecorder);
+      final size = 80.0;
 
-    // Draw outer circle (white border)
-    final outerPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(
-      Offset(size / 2, size / 2),
-      size / 2,
-      outerPaint,
-    );
+      // Draw outer white circle (border)
+      final outerPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(
+        Offset(size / 2, size / 2),
+        size / 2,
+        outerPaint,
+      );
 
-    // Draw inner circle (blue dot)
-    final innerPaint = Paint()
-      ..color = const Color(0xFF4285F4) // Google Maps blue
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(
-      Offset(size / 2, size / 2),
-      (size / 2) - 4,
-      innerPaint,
-    );
+      // Draw inner blue circle
+      final innerPaint = Paint()
+        ..color = const Color(0xFF4285F4) // Google Maps blue
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(
+        Offset(size / 2, size / 2),
+        (size / 2) - 5,
+        innerPaint,
+      );
 
-    // Draw direction indicator (small triangle)
-    final trianglePaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    
-    final trianglePath = Path();
-    trianglePath.moveTo(size / 2, 8); // Top point
-    trianglePath.lineTo(size / 2 - 6, 20); // Bottom left
-    trianglePath.lineTo(size / 2 + 6, 20); // Bottom right
-    trianglePath.close();
-    canvas.drawPath(trianglePath, trianglePaint);
+      // Draw center white dot
+      final centerPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(
+        Offset(size / 2, size / 2),
+        8,
+        centerPaint,
+      );
 
-    final picture = pictureRecorder.endRecording();
-    final image = await picture.toImage(size.toInt(), size.toInt());
-    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    final uint8List = byteData!.buffer.asUint8List();
+      // Draw direction indicator arrow
+      final arrowPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.fill;
+      
+      final arrowPath = Path();
+      arrowPath.moveTo(size / 2, 10); // Top point
+      arrowPath.lineTo(size / 2 - 8, 26); // Bottom left
+      arrowPath.lineTo(size / 2, 22); // Middle
+      arrowPath.lineTo(size / 2 + 8, 26); // Bottom right
+      arrowPath.close();
+      canvas.drawPath(arrowPath, arrowPaint);
 
-    _userLocationIcon = BitmapDescriptor.fromBytes(uint8List);
+      final picture = pictureRecorder.endRecording();
+      final image = await picture.toImage(size.toInt(), size.toInt());
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      
+      if (byteData != null) {
+        final uint8List = byteData.buffer.asUint8List();
+        _userLocationIcon = BitmapDescriptor.fromBytes(uint8List);
+      }
+    } catch (e) {
+      print('Error creating custom icon: $e');
+      // Fallback to default marker if custom icon fails
+      _userLocationIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+    }
   }
 
   void _loadRouteData() {
@@ -327,31 +346,29 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       Circle(
         circleId: const CircleId('accuracy_circle'),
         center: LatLng(position.latitude, position.longitude),
-        radius: position.accuracy,
+        radius: position.accuracy.clamp(5.0, 100.0), // Limit circle size
         fillColor: const Color(0xFF4285F4).withOpacity(0.1),
         strokeColor: const Color(0xFF4285F4).withOpacity(0.3),
-        strokeWidth: 1,
+        strokeWidth: 2,
       ),
     );
     
-    // Add custom user location marker
-    if (_userLocationIcon != null) {
-      _markers.add(
-        Marker(
-          markerId: const MarkerId('user_location'),
-          position: LatLng(position.latitude, position.longitude),
-          icon: _userLocationIcon!,
-          anchor: const Offset(0.5, 0.5),
-          rotation: _currentBearing,
-          flat: true,
-          zIndex: 999,
-          infoWindow: InfoWindow(
-            title: 'You are here',
-            snippet: '${position.accuracy.toStringAsFixed(1)}m accuracy',
-          ),
+    // Add user location marker (use custom icon or fallback)
+    _markers.add(
+      Marker(
+        markerId: const MarkerId('user_location'),
+        position: LatLng(position.latitude, position.longitude),
+        icon: _userLocationIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        anchor: const Offset(0.5, 0.5),
+        rotation: _currentBearing,
+        flat: true,
+        zIndex: 999,
+        infoWindow: InfoWindow(
+          title: 'You are here',
+          snippet: 'Accuracy: ${position.accuracy.toStringAsFixed(1)}m',
         ),
-      );
-    }
+      ),
+    );
     
     setState(() {});
   }

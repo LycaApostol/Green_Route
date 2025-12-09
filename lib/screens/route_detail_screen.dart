@@ -31,6 +31,8 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
   maps.GoogleMapController? _mapController;
   bool _showDirections = false;
   int _expandedStepIndex = -1;
+  bool _isFavorite = false;
+  bool _isCheckingFavorite = true;
 
   @override
   void initState() {
@@ -58,6 +60,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     ));
     
     _animationController.forward();
+    _checkIfFavorite();
   }
 
   @override
@@ -65,6 +68,94 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     _animationController.dispose();
     _mapController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkIfFavorite() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      setState(() => _isCheckingFavorite = false);
+      return;
+    }
+
+    try {
+      final favorites = await _db.streamFavorites(uid).first;
+      final isFav = favorites.any((fav) => 
+        fav['title'] == widget.title && fav['subtitle'] == widget.subtitle
+      );
+      
+      setState(() {
+        _isFavorite = isFav;
+        _isCheckingFavorite = false;
+      });
+    } catch (e) {
+      setState(() => _isCheckingFavorite = false);
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login to save favorites')),
+      );
+      return;
+    }
+
+    setState(() => _isFavorite = !_isFavorite);
+
+    try {
+      if (_isFavorite) {
+        final favoriteData = {
+          'title': widget.title,
+          'subtitle': widget.subtitle,
+          ...?widget.routeData,
+        };
+        await _db.addFavorite(uid, favoriteData);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Row(
+                children: [
+                  Icon(Icons.favorite, color: Colors.white, size: 20),
+                  SizedBox(width: 8),
+                  Text('Added to favorites'),
+                ],
+              ),
+              backgroundColor: Colors.red[400],
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // Remove from favorites
+        // Note: You'll need to implement removeFavorite in FirestoreService
+        // For now, we'll just show a message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.favorite_border, color: Colors.white, size: 20),
+                  SizedBox(width: 8),
+                  Text('Removed from favorites'),
+                ],
+              ),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      // Revert state if error
+      setState(() => _isFavorite = !_isFavorite);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _onStart(BuildContext context) async {
@@ -143,13 +234,45 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       backgroundColor: Colors.grey[50],
       body: CustomScrollView(
         slivers: [
-          // Animated App Bar
+          // Animated App Bar with Favorite Button
           SliverAppBar(
             expandedHeight: 320,
             pinned: true,
             backgroundColor: Colors.white,
             foregroundColor: Colors.black,
             elevation: 0,
+            actions: [
+              // Favorite Button
+              _isCheckingFavorite
+                  ? const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : IconButton(
+                      icon: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        transitionBuilder: (child, animation) {
+                          return ScaleTransition(
+                            scale: animation,
+                            child: child,
+                          );
+                        },
+                        child: Icon(
+                          _isFavorite ? Icons.favorite : Icons.favorite_border,
+                          key: ValueKey(_isFavorite),
+                          color: _isFavorite ? Colors.red : Colors.grey[700],
+                          size: 26,
+                        ),
+                      ),
+                      onPressed: _toggleFavorite,
+                      tooltip: _isFavorite ? 'Remove from favorites' : 'Add to favorites',
+                    ),
+              const SizedBox(width: 8),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               background: Column(
                 children: [

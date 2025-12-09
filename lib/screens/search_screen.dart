@@ -5,16 +5,20 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'route_list_screen.dart';
 
-const String googleApiKey = "";
+const String googleApiKey = "AIzaSyBuAq0UCRUt89jKicriPY8_KCfHWIGrzLc";
 
 class SearchScreen extends StatefulWidget {
   final String? selectedMode;
   final Map<String, bool>? preferences;
+  final Function(Map<String, bool>)? onPreferencesChanged;
+  final Function(String)? onModeChanged;
 
   const SearchScreen({
     super.key,
     this.selectedMode,
     this.preferences,
+    this.onPreferencesChanged,
+    this.onModeChanged,
   });
 
   @override
@@ -40,39 +44,43 @@ class _SearchScreenState extends State<SearchScreen> {
   bool isSearchingFrom = false;
   bool isSearchingTo = false;
 
-  // Use the passed mode or default to Cycling
+  // Use the passed mode and preferences from HomeScreen
   late String currentMode;
   late Map<String, bool> currentPreferences;
-
-  // Mode-specific preferences
-  final Map<String, Map<String, bool>> modePreferences = {
-    'Cycling': {
-      'Prioritize bike lanes': true,
-      'Avoid steep hills': false,
-      'Scenic routes': true,
-      'Prioritize green spaces': true,
-    },
-    'Walking': {
-      'Pedestrian-friendly paths': true,
-      'Shade coverage': false,
-      'Scenic routes': true,
-      'Avoid highways': true,
-    },
-  };
 
   @override
   void initState() {
     super.initState();
     currentMode = widget.selectedMode ?? 'Cycling';
-    currentPreferences = widget.preferences ?? modePreferences[currentMode] ?? {};
+    currentPreferences = Map<String, bool>.from(widget.preferences ?? {});
     _getCurrentLocation();
   }
 
   void _switchMode(String newMode) {
     setState(() {
       currentMode = newMode;
-      currentPreferences = modePreferences[newMode] ?? {};
+      
+      // Load default preferences for the new mode
+      if (newMode == 'Cycling') {
+        currentPreferences = {
+          'Prioritize bike lanes': true,
+          'Avoid steep hills': false,
+          'Scenic routes': true,
+          'Prioritize green spaces': true,
+        };
+      } else if (newMode == 'Walking') {
+        currentPreferences = {
+          'Pedestrian-friendly paths': true,
+          'Shade coverage': false,
+          'Scenic routes': true,
+          'Avoid highways': true,
+        };
+      }
     });
+
+    // Notify HomeScreen about mode change
+    widget.onModeChanged?.call(newMode);
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Switched to $newMode mode'),
@@ -265,6 +273,9 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
+    // Notify HomeScreen about any preference changes before navigating
+    widget.onPreferencesChanged?.call(currentPreferences);
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -309,11 +320,11 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             )
           : predictions.isEmpty && currentText.isNotEmpty
-              ? const Padding(
-                  padding: EdgeInsets.all(16.0),
+              ? Padding(
+                  padding: const EdgeInsets.all(16.0),
                   child: Text(
                     'No results found. Try a different search.',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(color: Colors.grey[600]),
                   ),
                 )
               : ListView(
@@ -321,7 +332,7 @@ class _SearchScreenState extends State<SearchScreen> {
                   children: [
                     if (isFromField && currentLocation != null)
                       ListTile(
-                        leading: const Icon(Icons.my_location, color: Colors.green),
+                        leading: Icon(Icons.my_location, color: Colors.green[700]),
                         title: const Text('Use current location'),
                         subtitle: Text(currentAddress ?? ''),
                         onTap: _useCurrentLocation,
@@ -329,7 +340,7 @@ class _SearchScreenState extends State<SearchScreen> {
                     if (isFromField && currentLocation != null && predictions.isNotEmpty)
                       const Divider(height: 1),
                     ...predictions.map((p) => ListTile(
-                          leading: const Icon(Icons.place, color: Colors.grey),
+                          leading: Icon(Icons.place, color: Colors.grey[600]),
                           title: Text(
                             p.mainText,
                             style: const TextStyle(fontWeight: FontWeight.w500),
@@ -351,301 +362,314 @@ class _SearchScreenState extends State<SearchScreen> {
         : Icons.directions_walk;
   }
 
+  Color _getModeColor() {
+    return currentMode == 'Cycling' ? Colors.green : Colors.green[800]!;
+  }
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          showFromSuggestions = false;
-          showToSuggestions = false;
-        });
-        FocusScope.of(context).unfocus();
+    return WillPopScope(
+      // Save preferences when user navigates back
+      onWillPop: () async {
+        widget.onPreferencesChanged?.call(currentPreferences);
+        return true;
       },
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text("Find Route"),
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            showFromSuggestions = false;
+            showToSuggestions = false;
+          });
+          FocusScope.of(context).unfocus();
+        },
+        child: Scaffold(
           backgroundColor: Colors.white,
-          foregroundColor: Colors.green,
-          elevation: 0,
-          actions: [
-            // Mode selector button
-            Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: PopupMenuButton<String>(
-                onSelected: _switchMode,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.green[100],
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.green.shade300, width: 2),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(_getModeIcon(), size: 18, color: Colors.green[900]),
-                      const SizedBox(width: 6),
-                      Text(
-                        currentMode,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.green[900],
+          appBar: AppBar(
+            title: const Text("Find Route"),
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.green[900],
+            elevation: 0,
+            actions: [
+              // Mode selector button
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: PopupMenuButton<String>(
+                  onSelected: _switchMode,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: currentMode == 'Cycling' ? Colors.green[100] : Colors.green[50],
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.green, width: 2),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(_getModeIcon(), size: 18, color: Colors.green[900]),
+                        const SizedBox(width: 6),
+                        Text(
+                          currentMode,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green[900],
+                          ),
                         ),
+                        const SizedBox(width: 4),
+                        Icon(Icons.arrow_drop_down, color: Colors.green[900], size: 20),
+                      ],
+                    ),
+                  ),
+                  itemBuilder: (BuildContext context) => [
+                    PopupMenuItem<String>(
+                      value: 'Cycling',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.directions_bike,
+                            color: currentMode == 'Cycling' ? Colors.green[700] : Colors.grey,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Cycling',
+                            style: TextStyle(
+                              fontWeight: currentMode == 'Cycling' 
+                                  ? FontWeight.bold 
+                                  : FontWeight.normal,
+                              color: currentMode == 'Cycling' ? Colors.green[900] : Colors.black,
+                            ),
+                          ),
+                          if (currentMode == 'Cycling') ...[
+                            const Spacer(),
+                            Icon(Icons.check, color: Colors.green[700], size: 20),
+                          ],
+                        ],
                       ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.arrow_drop_down, color: Colors.green[900], size: 20),
-                    ],
-                  ),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'Walking',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.directions_walk,
+                            color: currentMode == 'Walking' ? Colors.green[700] : Colors.grey,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Walking',
+                            style: TextStyle(
+                              fontWeight: currentMode == 'Walking' 
+                                  ? FontWeight.bold 
+                                  : FontWeight.normal,
+                              color: currentMode == 'Walking' ? Colors.green[900] : Colors.black,
+                            ),
+                          ),
+                          if (currentMode == 'Walking') ...[
+                            const Spacer(),
+                            Icon(Icons.check, color: Colors.green[700], size: 20),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                itemBuilder: (BuildContext context) => [
-                  PopupMenuItem<String>(
-                    value: 'Cycling',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.directions_bike,
-                          color: currentMode == 'Cycling' ? Colors.green : Colors.grey,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          'Cycling',
-                          style: TextStyle(
-                            fontWeight: currentMode == 'Cycling' 
-                                ? FontWeight.bold 
-                                : FontWeight.normal,
-                            color: currentMode == 'Cycling' ? Colors.green : Colors.black,
-                          ),
-                        ),
-                        if (currentMode == 'Cycling') ...[
-                          const Spacer(),
-                          const Icon(Icons.check, color: Colors.green, size: 20),
-                        ],
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem<String>(
-                    value: 'Walking',
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.directions_walk,
-                          color: currentMode == 'Walking' ? Colors.blue : Colors.grey,
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          'Walking',
-                          style: TextStyle(
-                            fontWeight: currentMode == 'Walking' 
-                                ? FontWeight.bold 
-                                : FontWeight.normal,
-                            color: currentMode == 'Walking' ? Colors.blue : Colors.black,
-                          ),
-                        ),
-                        if (currentMode == 'Walking') ...[
-                          const Spacer(),
-                          const Icon(Icons.check, color: Colors.blue, size: 20),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
               ),
-            ),
-          ],
-        ),
-        body: loading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Show active preferences
-                      if (currentPreferences.isNotEmpty && currentPreferences.values.any((v) => v))
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.green[50],
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.green.shade200),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Icon(Icons.tune, size: 16, color: Colors.green[700]),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Active Preferences',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
-                                      color: Colors.green[900],
+            ],
+          ),
+          body: loading
+              ? const Center(child: CircularProgressIndicator())
+              : SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Show active preferences
+                        if (currentPreferences.isNotEmpty && currentPreferences.values.any((v) => v))
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.green[50],
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.green.withOpacity(0.3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.tune, size: 16, color: Colors.green[700]),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Active Preferences',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                        color: Colors.green[900],
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: currentPreferences.entries
-                                    .where((e) => e.value)
-                                    .map((e) => Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white,
-                                            borderRadius: BorderRadius.circular(8),
-                                            border: Border.all(color: Colors.green.shade300),
-                                          ),
-                                          child: Text(
-                                            e.key,
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.green[800],
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: currentPreferences.entries
+                                      .where((e) => e.value)
+                                      .map((e) => Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 4,
                                             ),
-                                          ),
-                                        ))
-                                    .toList(),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(8),
+                                              border: Border.all(color: Colors.green),
+                                            ),
+                                            child: Text(
+                                              e.key,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: Colors.green[900],
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                          ))
+                                      .toList(),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        TextField(
+                          controller: fromController,
+                          onTap: () {
+                            setState(() {
+                              showFromSuggestions = true;
+                              showToSuggestions = false;
+                            });
+                          },
+                          onChanged: (value) {
+                            setState(() {
+                              showFromSuggestions = true;
+                              selectedFromLocation = null;
+                            });
+                            _searchPlaces(value, true);
+                          },
+                          decoration: InputDecoration(
+                            prefixIcon: Icon(Icons.my_location, color: Colors.green[700]),
+                            labelText: "Starting from",
+                            hintText: "Enter starting point",
+                            filled: true,
+                            fillColor: Colors.green[50],
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                            suffixIcon: fromController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear),
+                                    onPressed: () {
+                                      setState(() {
+                                        fromController.clear();
+                                        selectedFromLocation = null;
+                                        fromPredictions = [];
+                                        showFromSuggestions = false;
+                                      });
+                                    },
+                                  )
+                                : null,
+                          ),
+                        ),
+                        
+                        if (showFromSuggestions)
+                          _buildSuggestionsList(
+                            predictions: fromPredictions,
+                            isSearching: isSearchingFrom,
+                            isFromField: true,
+                            currentText: fromController.text,
+                          ),
+
+                        const SizedBox(height: 16),
+
+                        TextField(
+                          controller: toController,
+                          onTap: () {
+                            setState(() {
+                              showToSuggestions = true;
+                              showFromSuggestions = false;
+                            });
+                          },
+                          onChanged: (value) {
+                            setState(() {
+                              showToSuggestions = true;
+                              selectedToLocation = null;
+                            });
+                            _searchPlaces(value, false);
+                          },
+                          decoration: InputDecoration(
+                            prefixIcon: Icon(Icons.place, color: Colors.green[700]),
+                            labelText: "Where to?",
+                            hintText: "Enter destination",
+                            filled: true,
+                            fillColor: Colors.green[50],
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                            suffixIcon: toController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(Icons.clear),
+                                    onPressed: () {
+                                      setState(() {
+                                        toController.clear();
+                                        selectedToLocation = null;
+                                        toPredictions = [];
+                                        showToSuggestions = false;
+                                      });
+                                    },
+                                  )
+                                : null,
+                          ),
+                        ),
+
+                        if (showToSuggestions)
+                          _buildSuggestionsList(
+                            predictions: toPredictions,
+                            isSearching: isSearchingTo,
+                            isFromField: false,
+                            currentText: toController.text,
+                          ),
+
+                        const SizedBox(height: 24),
+
+                        ElevatedButton(
+                          onPressed: _searchRoutes,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            minimumSize: const Size.fromHeight(50),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.search, color: Colors.white),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Search $currentMode Routes',
+                                style: const TextStyle(fontSize: 16, color: Colors.white),
                               ),
                             ],
                           ),
                         ),
-
-                      TextField(
-                        controller: fromController,
-                        onTap: () {
-                          setState(() {
-                            showFromSuggestions = true;
-                            showToSuggestions = false;
-                          });
-                        },
-                        onChanged: (value) {
-                          setState(() {
-                            showFromSuggestions = true;
-                            selectedFromLocation = null;
-                          });
-                          _searchPlaces(value, true);
-                        },
-                        decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.my_location, color: Colors.green),
-                          labelText: "Starting from",
-                          hintText: "Enter starting point",
-                          filled: true,
-                          fillColor: Colors.green[50],
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
-                          ),
-                          suffixIcon: fromController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear),
-                                  onPressed: () {
-                                    setState(() {
-                                      fromController.clear();
-                                      selectedFromLocation = null;
-                                      fromPredictions = [];
-                                      showFromSuggestions = false;
-                                    });
-                                  },
-                                )
-                              : null,
-                        ),
-                      ),
-                      
-                      if (showFromSuggestions)
-                        _buildSuggestionsList(
-                          predictions: fromPredictions,
-                          isSearching: isSearchingFrom,
-                          isFromField: true,
-                          currentText: fromController.text,
-                        ),
-
-                      const SizedBox(height: 16),
-
-                      TextField(
-                        controller: toController,
-                        onTap: () {
-                          setState(() {
-                            showToSuggestions = true;
-                            showFromSuggestions = false;
-                          });
-                        },
-                        onChanged: (value) {
-                          setState(() {
-                            showToSuggestions = true;
-                            selectedToLocation = null;
-                          });
-                          _searchPlaces(value, false);
-                        },
-                        decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.place, color: Colors.red),
-                          labelText: "Where to?",
-                          hintText: "Enter destination",
-                          filled: true,
-                          fillColor: Colors.red[50],
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
-                          ),
-                          suffixIcon: toController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(Icons.clear),
-                                  onPressed: () {
-                                    setState(() {
-                                      toController.clear();
-                                      selectedToLocation = null;
-                                      toPredictions = [];
-                                      showToSuggestions = false;
-                                    });
-                                  },
-                                )
-                              : null,
-                        ),
-                      ),
-
-                      if (showToSuggestions)
-                        _buildSuggestionsList(
-                          predictions: toPredictions,
-                          isSearching: isSearchingTo,
-                          isFromField: false,
-                          currentText: toController.text,
-                        ),
-
-                      const SizedBox(height: 24),
-
-                      ElevatedButton(
-                        onPressed: _searchRoutes,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green[700],
-                          minimumSize: const Size.fromHeight(50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(_getModeIcon(), color: Colors.white),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Search $currentMode Routes',
-                              style: const TextStyle(fontSize: 16, color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
+        ),
       ),
     );
   }

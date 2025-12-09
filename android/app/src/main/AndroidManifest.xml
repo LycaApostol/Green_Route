@@ -68,7 +68,7 @@
         <!-- ✅ Your Google Maps API Key -->
         <meta-data 
             android:name="com.google.android.geo.API_KEY" 
-            android:value=""/>
+            android:value="AIzaSyBuAq0UCRUt89jKicriPY8_KCfHWIGrzLc"/>
     </application>
 
     <!-- Required to query activities that can process text -->

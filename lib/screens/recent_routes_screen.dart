@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../services/firestore_service.dart';
 import 'route_detail_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
 
 class RecentRoutesScreen extends StatelessWidget {
   const RecentRoutesScreen({super.key});
@@ -11,33 +12,242 @@ class RecentRoutesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return const Scaffold(body: Center(child: Text('Please login')));
+    if (uid == null) {
+      return const Scaffold(
+        body: Center(child: Text('Please login')),
+      );
+    }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Recent Routes'), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Recent Routes',
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+      ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _db.streamRecentRoutes(uid),
         builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
           final data = snap.data ?? [];
-          if (data.isEmpty) return const Center(child: Text('No recent routes'));
-          return ListView.separated(
-            padding: const EdgeInsets.all(12),
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+          
+          if (data.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.route_outlined, size: 80, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No recent routes',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Start navigating to see your history',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             itemCount: data.length,
             itemBuilder: (ctx, i) {
               final r = data[i];
-              return ListTile(
-                tileColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                title: Text(r['title'] ?? ''),
-                subtitle: Text(r['subtitle'] ?? ''),
-                trailing: Text(_formatTime(r['createdAt'])),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RouteDetailScreen(title: r['title'] ?? '', subtitle: r['subtitle'] ?? '', routeData: r))),
-              );
+              return _buildRouteCard(context, r, uid);
             },
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildRouteCard(BuildContext context, Map<String, dynamic> route, String uid) {
+    final title = route['title'] ?? 'Unknown Route';
+    final subtitle = route['subtitle'] ?? '';
+    final timestamp = route['createdAt'];
+    final distance = route['distance'] ?? 'N/A';
+    final duration = route['duration'] ?? 'N/A';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RouteDetailScreen(
+              title: title,
+              subtitle: subtitle,
+              routeData: route,
+            ),
+          ),
+        ),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Location icon and title
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.location_on,
+                      color: Colors.green[700],
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[600],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatTimestamp(timestamp),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[500],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    _formatTime(timestamp),
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Distance and Duration cards
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            distance,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Distance',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            duration,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Duration',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -46,7 +256,30 @@ class RecentRoutesScreen extends StatelessWidget {
     try {
       if (ts is Timestamp) {
         final dt = ts.toDate();
-        return '${dt.hour}:${dt.minute.toString().padLeft(2,'0')}';
+        return DateFormat('h:mm a').format(dt); // e.g., "9:00 AM"
+      }
+      return '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  String _formatTimestamp(dynamic ts) {
+    try {
+      if (ts is Timestamp) {
+        final dt = ts.toDate();
+        final now = DateTime.now();
+        final diff = now.difference(dt);
+
+        if (diff.inDays == 0) {
+          return 'Today at ${DateFormat('h:mm a').format(dt)}';
+        } else if (diff.inDays == 1) {
+          return 'Yesterday at ${DateFormat('h:mm a').format(dt)}';
+        } else if (diff.inDays < 7) {
+          return '${DateFormat('EEEE').format(dt)} at ${DateFormat('h:mm a').format(dt)}';
+        } else {
+          return DateFormat('MMM d, y').format(dt); // e.g., "Dec 9, 2025"
+        }
       }
       return '';
     } catch (e) {

@@ -11,37 +11,166 @@ class FavoritesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
-      return const Scaffold(body: Center(child: Text('Please login')));
+      return const Scaffold(
+        body: Center(child: Text('Please login')),
+      );
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Favorites'), backgroundColor: Colors.white, foregroundColor: Colors.black, elevation: 0),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Favorites',
+          style: TextStyle(
+            color: Colors.black,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        backgroundColor: Colors.white,
+        elevation: 0,
+      ),
       body: StreamBuilder<List<Map<String, dynamic>>>(
         stream: _db.streamFavorites(uid),
         builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          
           final data = snap.data ?? [];
-          if (data.isEmpty) return const Center(child: Text('No favorites yet'));
+          
+          if (data.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.favorite_border, size: 80, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No favorites yet',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Save routes to quickly access them later',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
           return ListView.separated(
-            padding: const EdgeInsets.all(12),
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            separatorBuilder: (_, __) => const Divider(height: 1),
             itemCount: data.length,
             itemBuilder: (ctx, i) {
               final r = data[i];
-              return ListTile(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                tileColor: Colors.white,
-                title: Text(r['title'] ?? ''),
-                subtitle: Text(r['subtitle'] ?? ''),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _db.removeFavorite(uid, r['id']),
-                ),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RouteDetailScreen(title: r['title'] ?? '', subtitle: r['subtitle'] ?? '', routeData: r))),
-              );
+              return _buildFavoriteItem(context, r, uid);
             },
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildFavoriteItem(
+    BuildContext context,
+    Map<String, dynamic> favorite,
+    String uid,
+  ) {
+    final title = favorite['title'] ?? 'Unknown Location';
+    final subtitle = favorite['subtitle'] ?? '';
+
+    return InkWell(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => RouteDetailScreen(
+            title: title,
+            subtitle: subtitle,
+            routeData: favorite,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
+        child: Row(
+          children: [
+            // Heart icon
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.grey[300]!, width: 1),
+              ),
+              child: const Icon(
+                Icons.favorite,
+                color: Colors.red,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 16),
+            
+            // Location details
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[600],
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            
+            // Share button
+            IconButton(
+              icon: Icon(
+                Icons.share_outlined,
+                color: Colors.grey[700],
+                size: 20,
+              ),
+              onPressed: () {
+                // TODO: Implement share functionality
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Share feature coming soon!'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

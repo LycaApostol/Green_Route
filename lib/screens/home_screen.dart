@@ -12,18 +12,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final user = FirebaseAuth.instance.currentUser;
-  final TextEditingController searchController = TextEditingController();
 
-  bool prioritizeGreen = true;
-  bool safeCycling = false;
-  bool scenicRoutes = true;
-
-  // If this list is empty, it means new user — no history yet.
+  // If this list is empty, it means new user – no history yet.
   List<Map<String, String>> recentActivities = [];
 
   String selectedMode = 'Cycling'; // Default mode
 
-  // Mode-specific preferences
+  // Mode-specific preferences (single source of truth)
   Map<String, Map<String, bool>> modePreferences = {
     'Cycling': {
       'Prioritize bike lanes': true,
@@ -39,20 +34,26 @@ class _HomeScreenState extends State<HomeScreen> {
     },
   };
 
-  @override
-  void dispose() {
-    searchController.dispose();
-    super.dispose();
-  }
-
   void _navigateToSearch() {
-    // Always pass the current selectedMode and preferences when navigating
+    // Navigate to search screen with current mode and preferences
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => SearchScreen(
           selectedMode: selectedMode,
           preferences: Map<String, bool>.from(modePreferences[selectedMode] ?? {}),
+          onPreferencesChanged: (updatedPreferences) {
+            // Update preferences when user changes them in SearchScreen
+            setState(() {
+              modePreferences[selectedMode] = updatedPreferences;
+            });
+          },
+          onModeChanged: (newMode) {
+            // Update mode when user changes it in SearchScreen
+            setState(() {
+              selectedMode = newMode;
+            });
+          },
         ),
       ),
     );
@@ -74,7 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 // 🔹 Dynamic greeting
                 Text(
-                  'Hello, $displayName 🍃',
+                  'Hello, $displayName 🌱',
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 12),
@@ -82,19 +83,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 // 🔹 Search bar with tap navigation
                 GestureDetector(
                   onTap: _navigateToSearch,
-                  child: AbsorbPointer(
-                    child: TextField(
-                      controller: searchController,
-                      decoration: InputDecoration(
-                        hintText: 'Search for routes',
-                        prefixIcon: const Icon(Icons.search, color: Colors.green),
-                        filled: true,
-                        fillColor: Colors.green[50],
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.search, color: Colors.green[700]),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Search for routes',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey[600],
+                          ),
                         ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
