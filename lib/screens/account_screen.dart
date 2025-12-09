@@ -45,7 +45,7 @@ class AccountScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Account'),
         backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        foregroundColor: Colors.green[900],
         elevation: 0,
       ),
       body: SafeArea(
@@ -59,7 +59,7 @@ class AccountScreen extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFD6F5E3),
+                  color: Colors.green[100],
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
@@ -85,9 +85,9 @@ class AccountScreen extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           email,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
-                            color: Colors.grey,
+                            color: Colors.grey[600],
                           ),
                         ),
                       ],
@@ -209,13 +209,13 @@ class AccountScreen extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: Colors.green[50],
         borderRadius: BorderRadius.circular(12),
       ),
       child: ListTile(
-        leading: Icon(icon, color: Colors.green),
+        leading: Icon(icon, color: Colors.green[700]),
         title: Text(title, style: const TextStyle(fontSize: 15)),
-        trailing: Icon(trailing, color: Colors.grey),
+        trailing: Icon(trailing, color: Colors.grey[600]),
         onTap: onTap,
       ),
     );

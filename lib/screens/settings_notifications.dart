@@ -70,7 +70,13 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Notifications')),
+        backgroundColor: Colors.white,
+        appBar: AppBar(
+          title: const Text('Notifications'),
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.green[900],
+          elevation: 0,
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -80,7 +86,7 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
       appBar: AppBar(
         title: const Text('Notifications'),
         backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
+        foregroundColor: Colors.green[900],
         elevation: 0,
       ),
       body: SafeArea(
@@ -95,11 +101,11 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Manage your notification preferences',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.grey,
+                color: Colors.grey[600],
               ),
             ),
             const SizedBox(height: 24),
@@ -204,7 +210,7 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
                   margin: const EdgeInsets.only(bottom: 10),
                   decoration: BoxDecoration(
                     color: _dailyForecast && _pushNotifications
-                        ? Colors.grey[100]
+                        ? Colors.green[50]
                         : Colors.grey[50],
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -213,7 +219,7 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
                     leading: Icon(
                       Icons.access_time,
                       color: _dailyForecast && _pushNotifications
-                          ? Colors.green
+                          ? Colors.green[700]
                           : Colors.grey,
                     ),
                     title: const Text('Notification Time'),
@@ -221,7 +227,7 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
                     trailing: Icon(
                       Icons.chevron_right,
                       color: _dailyForecast && _pushNotifications
-                          ? Colors.grey
+                          ? Colors.grey[600]
                           : Colors.grey[300],
                     ),
                     onTap: _dailyForecast && _pushNotifications
@@ -251,7 +257,7 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
                 icon: const Icon(Icons.notifications_outlined),
                 label: const Text('Send Test Notification'),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.green,
+                  foregroundColor: Colors.green[700],
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
@@ -299,13 +305,13 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color: enabled ? Colors.grey[100] : Colors.grey[50],
+        color: enabled ? Colors.green[50] : Colors.grey[50],
         borderRadius: BorderRadius.circular(12),
       ),
       child: SwitchListTile(
         secondary: Icon(
           icon,
-          color: enabled ? Colors.green : Colors.grey,
+          color: enabled ? Colors.green[700] : Colors.grey,
         ),
         title: Text(
           title,
@@ -318,7 +324,7 @@ class _NotificationsSettingsState extends State<NotificationsSettings> {
           subtitle,
           style: TextStyle(
             fontSize: 12,
-            color: enabled ? Colors.grey : Colors.grey[400],
+            color: enabled ? Colors.grey[600] : Colors.grey[400],
           ),
         ),
         value: value,

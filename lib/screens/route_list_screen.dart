@@ -470,17 +470,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
     }
   }
 
-  Color _getModeColor() {
-    switch (widget.travelMode.toLowerCase()) {
-      case 'cycling':
-        return Colors.green;
-      case 'walking':
-        return Colors.blue; 
-      default:
-        return Colors.blue;
-    }
-  }
-
   Widget _buildBikeLaneIndicator(RouteOption route) {
     if (widget.travelMode != 'Cycling' || route.bikeLaneScore == 0) {
       return const SizedBox.shrink();
@@ -623,13 +612,13 @@ class _RouteListScreenState extends State<RouteListScreen> {
             const Text('Route Options', style: TextStyle(fontSize: 18)),
             Row(
               children: [
-                Icon(_getTravelModeIcon(), size: 14, color: _getModeColor()),
+                Icon(_getTravelModeIcon(), size: 14, color: Colors.green[700]),
                 const SizedBox(width: 4),
                 Text(
                   widget.travelMode,
                   style: TextStyle(
                     fontSize: 12,
-                    color: _getModeColor(),
+                    color: Colors.green[700],
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -642,7 +631,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
         elevation: 0,
       ),
       body: loading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(child: CircularProgressIndicator(color: Colors.green))
           : errorMessage != null
               ? Center(
                   child: Padding(
@@ -670,7 +659,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                           icon: const Icon(Icons.refresh),
                           label: const Text('Retry'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _getModeColor(),
+                            backgroundColor: Colors.green,
                             foregroundColor: Colors.white,
                           ),
                         ),
@@ -682,7 +671,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                   children: [
                     Container(
                       padding: const EdgeInsets.all(16),
-                      color: Colors.grey[100],
+                      color: Colors.green[50],
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -703,7 +692,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              Icon(Icons.place, size: 16, color: Colors.red[700]),
+                              Icon(Icons.place, size: 16, color: Colors.green[900]),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
@@ -728,17 +717,17 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                           vertical: 4,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: _getModeColor().withOpacity(0.1),
+                                          color: Colors.green[100],
                                           borderRadius: BorderRadius.circular(8),
                                           border: Border.all(
-                                            color: _getModeColor().withOpacity(0.3),
+                                            color: Colors.green,
                                           ),
                                         ),
                                         child: Text(
                                           e.key,
                                           style: TextStyle(
                                             fontSize: 10,
-                                            color: _getModeColor(),
+                                            color: Colors.green[900],
                                             fontWeight: FontWeight.w600,
                                           ),
                                         ),
@@ -765,8 +754,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                               borderRadius: BorderRadius.circular(16),
                               side: BorderSide(
                                 color: isRecommended 
-                                    ? Colors.amber.shade400
-                                    : _getModeColor().withOpacity(0.3),
+                                    ? Colors.green
+                                    : Colors.green.withOpacity(0.3),
                                 width: isRecommended ? 3 : 2,
                               ),
                             ),
@@ -778,7 +767,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                     padding: const EdgeInsets.symmetric(vertical: 8),
                                     decoration: BoxDecoration(
                                       gradient: LinearGradient(
-                                        colors: [const Color.fromARGB(255, 2, 243, 103), const Color.fromARGB(255, 4, 179, 91)],
+                                        colors: [Colors.green.shade400, Colors.green.shade600],
                                       ),
                                       borderRadius: const BorderRadius.only(
                                         topLeft: Radius.circular(14),
@@ -833,8 +822,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                                 polylineId: maps.PolylineId('route_$index'),
                                                 points: route.polylineCoordinates,
                                                 color: isRecommended 
-                                                    ? Colors.amber.shade700
-                                                    : _getModeColor(),
+                                                    ? Colors.green.shade700
+                                                    : Colors.green,
                                                 width: isRecommended ? 6 : 5,
                                                 startCap: maps.Cap.roundCap,
                                                 endCap: maps.Cap.roundCap,
@@ -889,7 +878,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                   ),
                                   child: Container(
                                     color: isRecommended 
-                                        ? Colors.amber.shade50
+                                        ? Colors.green.shade50
                                         : Colors.white,
                                     padding: const EdgeInsets.all(16),
                                     child: Column(
@@ -901,8 +890,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               _getTravelModeIcon(),
                                               size: 20,
                                               color: isRecommended 
-                                                  ? Colors.amber.shade800
-                                                  : _getModeColor(),
+                                                  ? Colors.green.shade800
+                                                  : Colors.green.shade700,
                                             ),
                                             const SizedBox(width: 8),
                                             Container(
@@ -912,8 +901,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               ),
                                               decoration: BoxDecoration(
                                                 color: isRecommended 
-                                                    ? Colors.amber.shade700
-                                                    : _getModeColor(),
+                                                    ? Colors.green.shade700
+                                                    : Colors.green,
                                                 borderRadius: BorderRadius.circular(6),
                                               ),
                                               child: Text(
@@ -947,8 +936,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               style: TextStyle(
                                                 fontSize: 13,
                                                 color: isRecommended 
-                                                    ? Colors.amber.shade800
-                                                    : _getModeColor(),
+                                                    ? Colors.green.shade800
+                                                    : Colors.green.shade700,
                                                 fontWeight: FontWeight.w600,
                                               ),
                                             ),
@@ -957,8 +946,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               Icons.arrow_forward_ios,
                                               size: 14,
                                               color: isRecommended 
-                                                  ? Colors.amber.shade800
-                                                  : _getModeColor(),
+                                                  ? Colors.green.shade800
+                                                  : Colors.green.shade700,
                                             ),
                                           ],
                                         ),
@@ -977,13 +966,11 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                           ),
                                           decoration: BoxDecoration(
                                             color: isRecommended 
-                                                ? Colors.amber.shade100
-                                                : _getModeColor().withOpacity(0.1),
+                                                ? Colors.green.shade100
+                                                : Colors.green.shade50,
                                             borderRadius: BorderRadius.circular(6),
                                             border: Border.all(
-                                              color: isRecommended 
-                                                  ? Colors.amber.shade400
-                                                  : _getModeColor().withOpacity(0.3),
+                                              color: Colors.green,
                                             ),
                                           ),
                                           child: Row(
@@ -992,18 +979,14 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               Icon(
                                                 Icons.check_circle,
                                                 size: 14,
-                                                color: isRecommended 
-                                                    ? Colors.amber.shade800
-                                                    : _getModeColor(),
+                                                color: Colors.green.shade800,
                                               ),
                                               const SizedBox(width: 4),
                                               Text(
                                                 'Optimized for ${widget.travelMode.toLowerCase()}',
                                                 style: TextStyle(
                                                   fontSize: 11,
-                                                  color: isRecommended 
-                                                      ? Colors.amber.shade800
-                                                      : _getModeColor(),
+                                                  color: Colors.green.shade800,
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
