@@ -24,6 +24,7 @@ dependencies:
   flutter_facebook_auth: ^6.0.3
   flutter_tts: ^3.8.0
   firebase_storage: ^12.4.10
+  flutter_local_notifications: ^17.0.0
 
   # --- Maps & Location ---
   google_maps_flutter: ^2.6.0
@@ -38,6 +39,8 @@ dependencies:
   # --- Networking ---
   http: ^1.2.1
   rename_app: ^1.6.5
+  otp: ^3.1.4
+  qr_flutter: ^4.1.0
 
 # --- Image handling ---
   image_picker: ^1.0.7

@@ -49,4 +49,9 @@ class FirestoreService {
     route['createdAt'] = FieldValue.serverTimestamp();
     await doc.set(route);
   }
+
+  // Remove recent route
+  Future<void> removeRecentRoute(String uid, String routeId) async {
+    await _userCollection(uid, 'recent_routes').doc(routeId).delete();
+  }
 }

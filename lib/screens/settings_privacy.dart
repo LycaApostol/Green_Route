@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
+import 'package:otp/otp.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'dart:math';
 
 class PrivacySettings extends StatefulWidget {
   const PrivacySettings({super.key});
@@ -10,11 +15,10 @@ class PrivacySettings extends StatefulWidget {
 }
 
 class _PrivacySettingsState extends State<PrivacySettings> {
-  bool _shareLocation = true;
-  bool _shareUsageData = false;
-  bool _personalizedAds = false;
-  bool _biometricAuth = false;
   bool _isLoading = true;
+  bool _twoFactorEnabled = false;
+  DateTime? _lastPasswordChange;
+  String? _totpSecret;
 
   @override
   void initState() {
@@ -25,20 +29,93 @@ class _PrivacySettingsState extends State<PrivacySettings> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _shareLocation = prefs.getBool('share_location') ?? true;
-      _shareUsageData = prefs.getBool('share_usage_data') ?? false;
-      _personalizedAds = prefs.getBool('personalized_ads') ?? false;
-      _biometricAuth = prefs.getBool('biometric_auth') ?? false;
+      _twoFactorEnabled = prefs.getBool('two_factor_enabled') ?? false;
+      _totpSecret = prefs.getString('totp_secret');
+      final timestamp = prefs.getInt('last_password_change');
+      if (timestamp != null) {
+        _lastPasswordChange = DateTime.fromMillisecondsSinceEpoch(timestamp);
+      }
       _isLoading = false;
     });
   }
 
   Future<void> _saveSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('share_location', _shareLocation);
-    await prefs.setBool('share_usage_data', _shareUsageData);
-    await prefs.setBool('personalized_ads', _personalizedAds);
-    await prefs.setBool('biometric_auth', _biometricAuth);
+    await prefs.setBool('two_factor_enabled', _twoFactorEnabled);
+    if (_totpSecret != null) {
+      await prefs.setString('totp_secret', _totpSecret!);
+    } else {
+      await prefs.remove('totp_secret');
+    }
+    if (_lastPasswordChange != null) {
+      await prefs.setInt('last_password_change', _lastPasswordChange!.millisecondsSinceEpoch);
+    }
+  }
+
+  String _getPasswordChangeText() {
+    if (_lastPasswordChange == null) {
+      return 'Never changed';
+    }
+    
+    final now = DateTime.now();
+    final difference = now.difference(_lastPasswordChange!);
+    
+    if (difference.inDays < 30) {
+      return 'Last changed ${difference.inDays} days ago';
+    } else {
+      final months = (difference.inDays / 30).floor();
+      return 'Last changed $months ${months == 1 ? "month" : "months"} ago';
+    }
+  }
+
+  // Generate a random secret for TOTP
+  String _generateSecret() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    final random = Random.secure();
+    return List.generate(32, (index) => chars[random.nextInt(chars.length)]).join();
+  }
+
+  // Generate TOTP URI for QR code
+  String _generateTotpUri(String secret, String email) {
+    return 'otpauth://totp/GreenRoute:$email?secret=$secret&issuer=GreenRoute';
+  }
+
+  // Verify TOTP code
+  bool _verifyTotpCode(String code, String secret) {
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final currentCode = OTP.generateTOTPCodeString(
+        secret,
+        now,
+        length: 6,
+        interval: 30,
+        algorithm: Algorithm.SHA1,
+        isGoogle: true,
+      );
+      
+      // Also check previous and next time window for clock skew
+      final prevCode = OTP.generateTOTPCodeString(
+        secret,
+        now - 30000,
+        length: 6,
+        interval: 30,
+        algorithm: Algorithm.SHA1,
+        isGoogle: true,
+      );
+      
+      final nextCode = OTP.generateTOTPCodeString(
+        secret,
+        now + 30000,
+        length: 6,
+        interval: 30,
+        algorithm: Algorithm.SHA1,
+        isGoogle: true,
+      );
+      
+      return code == currentCode || code == prevCode || code == nextCode;
+    } catch (e) {
+      return false;
+    }
   }
 
   Future<void> _changePassword() async {
@@ -49,24 +126,293 @@ class _PrivacySettingsState extends State<PrivacySettings> {
       return;
     }
 
-    final TextEditingController emailController = TextEditingController();
+    final TextEditingController currentPasswordController = TextEditingController();
+    final TextEditingController newPasswordController = TextEditingController();
+    final TextEditingController confirmPasswordController = TextEditingController();
     
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reset Password'),
+        title: const Text('Change Password'),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: currentPasswordController,
+                  decoration: const InputDecoration(
+                    labelText: 'Current Password',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  obscureText: true,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: newPasswordController,
+                  decoration: const InputDecoration(
+                    labelText: 'New Password',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  obscureText: true,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: confirmPasswordController,
+                  decoration: const InputDecoration(
+                    labelText: 'Confirm New Password',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  obscureText: true,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Change Password'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      if (newPasswordController.text != confirmPasswordController.text) {
+        _showMessage('Passwords do not match');
+        return;
+      }
+
+      if (newPasswordController.text.length < 6) {
+        _showMessage('Password must be at least 6 characters');
+        return;
+      }
+
+      try {
+        final credential = EmailAuthProvider.credential(
+          email: user.email!,
+          password: currentPasswordController.text,
+        );
+        await user.reauthenticateWithCredential(credential);
+        await user.updatePassword(newPasswordController.text);
+        
+        setState(() {
+          _lastPasswordChange = DateTime.now();
+        });
+        await _saveSettings();
+        
+        if (mounted) {
+          _showMessage('Password changed successfully', isError: false);
+        }
+      } catch (e) {
+        if (mounted) {
+          _showMessage('Error: ${e.toString()}');
+        }
+      }
+    }
+  }
+
+  Future<void> _toggleTwoFactor() async {
+    if (_twoFactorEnabled) {
+      await _disableTwoFactor();
+    } else {
+      await _enableTwoFactor();
+    }
+  }
+
+  Future<void> _enableTwoFactor() async {
+    final user = FirebaseAuth.instance.currentUser;
+    
+    if (user == null) {
+      _showMessage('No user signed in');
+      return;
+    }
+
+    // Generate secret
+    final secret = _generateSecret();
+    final email = user.email ?? 'user@greenroute.com';
+    final totpUri = _generateTotpUri(secret, email);
+
+    // Show QR code setup dialog
+    final TextEditingController codeController = TextEditingController();
+    
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Setup Authenticator'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Scan this QR code with your authenticator app:',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '• Google Authenticator\n• Microsoft Authenticator\n• Authy\n• Any TOTP app',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: QrImageView(
+                    data: totpUri,
+                    version: QrVersions.auto,
+                    size: 200,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Or enter this key manually:',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SelectableText(
+                        secret,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontFamily: 'monospace',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy, size: 18),
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: secret));
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(
+                            content: Text('Secret copied to clipboard'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Enter the 6-digit code from your app:',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: codeController,
+                decoration: const InputDecoration(
+                  labelText: 'Verification Code',
+                  border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock),
+                ),
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Verify & Enable'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final enteredCode = codeController.text.trim();
+
+      if (enteredCode.length != 6) {
+        _showMessage('Please enter a valid 6-digit code');
+        return;
+      }
+
+      // Verify the code
+      if (_verifyTotpCode(enteredCode, secret)) {
+        setState(() {
+          _twoFactorEnabled = true;
+          _totpSecret = secret;
+        });
+        await _saveSettings();
+        
+        _showMessage('Two-factor authentication enabled successfully! ✓', isError: false);
+      } else {
+        _showMessage('Invalid verification code. Please try again.');
+      }
+    }
+  }
+
+  Future<void> _disableTwoFactor() async {
+    if (_totpSecret == null) {
+      setState(() {
+        _twoFactorEnabled = false;
+      });
+      await _saveSettings();
+      return;
+    }
+
+    // Verify with TOTP code before disabling
+    final TextEditingController codeController = TextEditingController();
+    
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Disable Two-Factor Authentication'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('A password reset link will be sent to your email.'),
+            const Text(
+              'Enter your authenticator code to confirm:',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
             const SizedBox(height: 16),
             TextField(
-              controller: emailController,
+              controller: codeController,
               decoration: const InputDecoration(
-                labelText: 'Email',
+                labelText: 'Verification Code',
                 border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.lock),
               ),
-              keyboardType: TextInputType.emailAddress,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'This will make your account less secure.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
         ),
@@ -77,66 +423,73 @@ class _PrivacySettingsState extends State<PrivacySettings> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Send Reset Link'),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Disable'),
           ),
         ],
       ),
     );
 
-    if (confirmed == true) {
-      try {
-        await FirebaseAuth.instance.sendPasswordResetEmail(
-          email: emailController.text.trim().isEmpty 
-              ? user.email! 
-              : emailController.text.trim(),
-        );
-        if (mounted) {
-          _showMessage('Password reset email sent', isError: false);
-        }
-      } catch (e) {
-        if (mounted) {
-          _showMessage('Error: ${e.toString()}');
-        }
+    if (result == true) {
+      final enteredCode = codeController.text.trim();
+
+      if (enteredCode.length != 6) {
+        _showMessage('Please enter a valid 6-digit code');
+        return;
       }
-    }
-  }
 
-  Future<void> _clearCache() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Clear Cache'),
-        content: const Text('This will clear all cached data. Continue?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            child: const Text('Clear'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      // Simulate cache clearing
-      await Future.delayed(const Duration(seconds: 1));
-      if (mounted) {
-        _showMessage('Cache cleared successfully', isError: false);
+      // Verify the code
+      if (_verifyTotpCode(enteredCode, _totpSecret!)) {
+        setState(() {
+          _twoFactorEnabled = false;
+          _totpSecret = null;
+        });
+        await _saveSettings();
+        
+        _showMessage('Two-factor authentication disabled', isError: false);
+      } else {
+        _showMessage('Invalid verification code');
       }
     }
   }
 
   Future<void> _deleteAccount() async {
+    final user = FirebaseAuth.instance.currentUser;
+    
+    if (user == null) {
+      _showMessage('No user signed in');
+      return;
+    }
+
+    final TextEditingController passwordController = TextEditingController();
+    
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Account'),
-        content: const Text(
-          'This action cannot be undone. All your data will be permanently deleted.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'This action cannot be undone. All your data will be permanently deleted.',
+              style: TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Please enter your password to confirm:',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: passwordController,
+              decoration: const InputDecoration(
+                labelText: 'Password',
+                border: OutlineInputBorder(),
+              ),
+              obscureText: true,
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -146,24 +499,32 @@ class _PrivacySettingsState extends State<PrivacySettings> {
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
+            child: const Text('Delete Account'),
           ),
         ],
       ),
     );
 
     if (confirmed == true) {
+      if (passwordController.text.isEmpty) {
+        _showMessage('Please enter your password');
+        return;
+      }
+
       try {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          await user.delete();
-          if (mounted) {
-            Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (route) => false);
-          }
+        final credential = EmailAuthProvider.credential(
+          email: user.email!,
+          password: passwordController.text,
+        );
+        await user.reauthenticateWithCredential(credential);
+        await user.delete();
+        
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil('/welcome', (route) => false);
         }
       } catch (e) {
         if (mounted) {
-          _showMessage('Error deleting account. You may need to re-authenticate.');
+          _showMessage('Error: ${e.toString()}');
         }
       }
     }
@@ -174,6 +535,7 @@ class _PrivacySettingsState extends State<PrivacySettings> {
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.red : Colors.green,
+        duration: const Duration(seconds: 3),
       ),
     );
   }
@@ -182,7 +544,12 @@ class _PrivacySettingsState extends State<PrivacySettings> {
   Widget build(BuildContext context) {
     if (_isLoading) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Privacy & Security')),
+        appBar: AppBar(
+          title: const Text('Privacy & Security'),
+          backgroundColor: Colors.white,
+          foregroundColor: Colors.black,
+          elevation: 0,
+        ),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
@@ -190,178 +557,66 @@ class _PrivacySettingsState extends State<PrivacySettings> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Privacy & Security'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: const Text(
+          'Privacy & Security',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(18.0),
+          padding: const EdgeInsets.all(0),
           children: [
-            const Text(
-              'Privacy & Security',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
             const SizedBox(height: 8),
-            const Text(
-              'Manage your privacy and security settings',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Privacy Section
-            _buildSection(
-              title: 'Privacy',
-              children: [
-                _buildSwitchTile(
-                  icon: Icons.location_on,
-                  title: 'Share Location',
-                  subtitle: 'Allow app to access your location',
-                  value: _shareLocation,
-                  onChanged: (value) {
-                    setState(() => _shareLocation = value);
-                    _saveSettings();
-                  },
-                ),
-                _buildSwitchTile(
-                  icon: Icons.analytics_outlined,
-                  title: 'Share Usage Data',
-                  subtitle: 'Help improve the app',
-                  value: _shareUsageData,
-                  onChanged: (value) {
-                    setState(() => _shareUsageData = value);
-                    _saveSettings();
-                  },
-                ),
-                _buildSwitchTile(
-                  icon: Icons.ad_units,
-                  title: 'Personalized Ads',
-                  subtitle: 'Show ads based on your interests',
-                  value: _personalizedAds,
-                  onChanged: (value) {
-                    setState(() => _personalizedAds = value);
-                    _saveSettings();
-                  },
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // Security Section
-            _buildSection(
-              title: 'Security',
-              children: [
-                _buildSwitchTile(
-                  icon: Icons.fingerprint,
-                  title: 'Biometric Authentication',
-                  subtitle: 'Use fingerprint or face ID',
-                  value: _biometricAuth,
-                  onChanged: (value) {
-                    setState(() => _biometricAuth = value);
-                    _saveSettings();
-                    _showMessage(
-                      'Biometric authentication ${value ? "enabled" : "disabled"}',
-                      isError: false,
-                    );
-                  },
-                ),
-                _buildActionTile(
-                  icon: Icons.lock_reset,
-                  title: 'Change Password',
-                  subtitle: 'Update your password',
-                  trailing: Icons.chevron_right,
-                  onTap: _changePassword,
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // Data Management Section
-            _buildSection(
-              title: 'Data Management',
-              children: [
-                _buildActionTile(
-                  icon: Icons.file_download,
-                  title: 'Download My Data',
-                  subtitle: 'Get a copy of your data',
-                  trailing: Icons.chevron_right,
-                  onTap: () {
-                    _showMessage('Feature coming soon', isError: false);
-                  },
-                ),
-                _buildActionTile(
-                  icon: Icons.cleaning_services,
-                  title: 'Clear Cache',
-                  subtitle: 'Free up storage space',
-                  trailing: Icons.chevron_right,
-                  onTap: _clearCache,
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // Legal Section
-            _buildSection(
-              title: 'Legal',
-              children: [
-                _buildActionTile(
-                  icon: Icons.privacy_tip_outlined,
-                  title: 'Privacy Policy',
-                  subtitle: 'Read our privacy policy',
-                  trailing: Icons.open_in_new,
-                  onTap: () {
-                    _showMessage('Opening privacy policy...', isError: false);
-                  },
-                ),
-                _buildActionTile(
-                  icon: Icons.description_outlined,
-                  title: 'Terms of Service',
-                  subtitle: 'Read our terms of service',
-                  trailing: Icons.open_in_new,
-                  onTap: () {
-                    _showMessage('Opening terms of service...', isError: false);
-                  },
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 30),
-
-            // Danger Zone
-            const Text(
-              'Danger Zone',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.red,
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: _deleteAccount,
-                icon: const Icon(Icons.delete_forever),
-                label: const Text('Delete Account'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  side: const BorderSide(color: Colors.red),
+            
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Text(
+                'ACCOUNT SECURITY',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                  letterSpacing: 0.5,
                 ),
               ),
+            ),
+
+            _buildSettingTile(
+              title: 'Change Password',
+              subtitle: _getPasswordChangeText(),
+              onTap: _changePassword,
+            ),
+            
+            const Divider(height: 1, indent: 16),
+
+            _buildSettingTile(
+              title: 'Two-Factor Authentication',
+              subtitle: _twoFactorEnabled 
+                  ? 'Authenticator app protection enabled' 
+                  : 'Extra security for your account',
+              onTap: _toggleTwoFactor,
+              trailing: _twoFactorEnabled 
+                  ? const Icon(Icons.check_circle, color: Colors.green, size: 20)
+                  : null,
+            ),
+            
+            const Divider(height: 1, indent: 16),
+
+            _buildSettingTile(
+              title: 'Delete Account',
+              subtitle: 'Permanently delete your account',
+              onTap: _deleteAccount,
+              titleColor: Colors.red,
             ),
           ],
         ),
@@ -369,69 +624,45 @@ class _PrivacySettingsState extends State<PrivacySettings> {
     );
   }
 
-  Widget _buildSection({
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 12),
-        ...children,
-      ],
-    );
-  }
-
-  Widget _buildSwitchTile({
-    required IconData icon,
+  Widget _buildSettingTile({
     required String title,
     required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: SwitchListTile(
-        secondary: Icon(icon, color: Colors.green),
-        title: Text(title, style: const TextStyle(fontSize: 15)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-        value: value,
-        activeThumbColor: Colors.green,
-        onChanged: onChanged,
-      ),
-    );
-  }
-
-  Widget _buildActionTile({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required IconData trailing,
     required VoidCallback onTap,
+    Color? titleColor,
+    Widget? trailing,
   }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ListTile(
-        leading: Icon(icon, color: Colors.green),
-        title: Text(title, style: const TextStyle(fontSize: 15)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-        trailing: Icon(trailing, color: Colors.grey),
-        onTap: onTap,
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w400,
+                      color: titleColor ?? Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing,
+          ],
+        ),
       ),
     );
   }

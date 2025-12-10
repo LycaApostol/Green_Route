@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:ui' as ui; // ADD THIS
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class MapRouteScreen extends StatefulWidget {
   final Map<String, dynamic>? routeData;
@@ -24,7 +26,11 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   GoogleMapController? _controller;
   LatLng? _current;
   StreamSubscription<Position>? _positionStream;
-  StreamSubscription<CompassEvent>? _compassStream; // ADD THIS
+  StreamSubscription<CompassEvent>? _compassStream;
+
+  // Notification plugin
+  final FlutterLocalNotificationsPlugin _notificationsPlugin = 
+      FlutterLocalNotificationsPlugin();
 
   // Navigation state
   bool _isNavigating = false;
@@ -34,21 +40,33 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   String _estimatedTimeRemaining = '';
   bool _hasReachedDestination = false;
   double _currentBearing = 0.0;
-  double _currentSpeed = 0.0; // ADD THIS to track movement speed
+  double _currentSpeed = 0.0;
 
   // Route data
   List<LatLng> _routePoints = [];
+  List<LatLng> _originalRoutePoints = [];
   List<Map<String, dynamic>> _steps = [];
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
-  Set<Circle> _circles = {}; // ADD THIS for location circle
+  Set<Circle> _circles = {};
   BitmapDescriptor? _startIcon;
   BitmapDescriptor? _endIcon;
   BitmapDescriptor? _userLocationIcon;
 
+  // Traveled path tracking
+  List<LatLng> _traveledPath = [];
+  
+  // Notification settings
+  bool _allowNotifications = true;
+  bool _arrivalNotifications = true;
+
   // UI state
   bool _isFollowingUser = true;
-  double _currentZoom = 17.0;
+  double _currentZoom = 19.0; // Changed default for navigation
+
+  // Enhanced tracking
+  int _closestPointIndex = 0;
+  bool _hasShownArrivalNotification = false;
 
   // Enhanced green palette
   static const Color primaryGreen = Color(0xFF10B981);
@@ -59,32 +77,88 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   @override
   void initState() {
     super.initState();
+    _initializeNotifications();
+    _loadNotificationSettings();
     _loadCustomMarkers();
     _loadRouteData();
     _determinePosition();
-    _startCompass(); // ADD THIS
+    _startCompass();
   }
 
   @override
   void dispose() {
     _positionStream?.cancel();
-    _compassStream?.cancel(); // ADD THIS
+    _compassStream?.cancel();
     _controller?.dispose();
     super.dispose();
   }
 
-  // ADD THIS METHOD
+  Future<void> _initializeNotifications() async {
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
+    );
+    
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
+
+    await _notificationsPlugin.initialize(initSettings);
+  }
+
+  Future<void> _loadNotificationSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _allowNotifications = prefs.getBool('allow_notifications') ?? true;
+      _arrivalNotifications = prefs.getBool('arrival_notifications') ?? true;
+    });
+  }
+
+  Future<void> _showArrivalNotification() async {
+    if (!_allowNotifications || !_arrivalNotifications || _hasShownArrivalNotification) return;
+
+    _hasShownArrivalNotification = true;
+
+    const androidDetails = AndroidNotificationDetails(
+      'navigation_channel',
+      'Navigation',
+      channelDescription: 'Navigation arrival notifications',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+
+    const notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notificationsPlugin.show(
+      0,
+      'Destination Reached! 🎉',
+      'You have arrived at ${widget.routeTitle ?? "your destination"}',
+      notificationDetails,
+    );
+  }
+
   void _startCompass() {
     _compassStream = FlutterCompass.events?.listen((CompassEvent event) {
       if (event.heading != null && mounted) {
-        // Only use compass bearing when not moving fast
-        // When moving fast, GPS heading is more accurate
-        if (_currentSpeed < 1.5) { // Less than 1.5 m/s (5.4 km/h)
+        if (_currentSpeed < 1.5) {
           setState(() {
             _currentBearing = event.heading!;
           });
           
-          // Update camera rotation if following user
           if (_isFollowingUser && _current != null && _controller != null) {
             _controller!.animateCamera(
               CameraUpdate.newCameraPosition(
@@ -112,16 +186,16 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       const ImageConfiguration(size: Size(48, 48)),
       'assets/end_marker.png',
     ).catchError((_) => BitmapDescriptor.defaultMarkerWithHue(0.0));
+
+    await _createUserLocationIcon();
   }
 
-  // ADD THIS METHOD - Creates custom user location icon
   Future<void> _createUserLocationIcon() async {
     try {
       final pictureRecorder = ui.PictureRecorder();
       final canvas = Canvas(pictureRecorder);
       final size = 80.0;
 
-      // Draw outer white circle (border)
       final outerPaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
@@ -131,9 +205,8 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         outerPaint,
       );
 
-      // Draw inner blue circle
       final innerPaint = Paint()
-        ..color = const Color(0xFF4285F4) // Google Maps blue
+        ..color = const Color(0xFF4285F4)
         ..style = PaintingStyle.fill;
       canvas.drawCircle(
         Offset(size / 2, size / 2),
@@ -141,7 +214,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         innerPaint,
       );
 
-      // Draw center white dot
       final centerPaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
@@ -151,16 +223,15 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         centerPaint,
       );
 
-      // Draw direction indicator arrow
       final arrowPaint = Paint()
         ..color = Colors.white
         ..style = PaintingStyle.fill;
       
       final arrowPath = Path();
-      arrowPath.moveTo(size / 2, 10); // Top point
-      arrowPath.lineTo(size / 2 - 8, 26); // Bottom left
-      arrowPath.lineTo(size / 2, 22); // Middle
-      arrowPath.lineTo(size / 2 + 8, 26); // Bottom right
+      arrowPath.moveTo(size / 2, 10);
+      arrowPath.lineTo(size / 2 - 8, 26);
+      arrowPath.lineTo(size / 2, 22);
+      arrowPath.lineTo(size / 2 + 8, 26);
       arrowPath.close();
       canvas.drawPath(arrowPath, arrowPaint);
 
@@ -174,7 +245,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       }
     } catch (e) {
       print('Error creating custom icon: $e');
-      // Fallback to default marker if custom icon fails
       _userLocationIcon = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
     }
   }
@@ -187,6 +257,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       _routePoints = polylinePoints
           .map((p) => LatLng(p['latitude'], p['longitude']))
           .toList();
+      _originalRoutePoints = List.from(_routePoints);
     }
 
     final steps = widget.routeData?['steps'] as List<dynamic>?;
@@ -194,18 +265,9 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       _steps = steps.map((s) => s as Map<String, dynamic>).toList();
     }
 
-    if (_routePoints.isNotEmpty) {
-      _polylines.add(
-        Polyline(
-          polylineId: const PolylineId('route'),
-          points: _routePoints,
-          color: primaryGreen,
-          width: 5,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-        ),
-      );
+    _updatePolylines();
 
+    if (_routePoints.isNotEmpty) {
       if (_startIcon != null) {
         _markers.add(
           Marker(
@@ -230,6 +292,38 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     }
 
     setState(() {});
+  }
+
+  void _updatePolylines() {
+    _polylines.clear();
+    
+    // Add traveled path (gray)
+    if (_traveledPath.length > 1) {
+      _polylines.add(
+        Polyline(
+          polylineId: const PolylineId('traveled'),
+          points: _traveledPath,
+          color: Colors.grey[400]!,
+          width: 5,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+      );
+    }
+
+    // Add remaining route (green) - shows actual remaining path
+    if (_routePoints.isNotEmpty) {
+      _polylines.add(
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: _routePoints,
+          color: primaryGreen,
+          width: 5,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+        ),
+      );
+    }
   }
 
   Future<void> _determinePosition() async {
@@ -258,7 +352,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       setState(() {
         _current = LatLng(pos.latitude, pos.longitude);
         _currentSpeed = pos.speed;
-        // Only use GPS heading if moving
         if (pos.speed > 1.5) {
           _currentBearing = pos.heading;
         }
@@ -286,6 +379,16 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       return;
     }
 
+    // Initialize traveled path with current position
+    _traveledPath.clear();
+    _traveledPath.add(_current!);
+
+    // Find the closest point on route to start from
+    _findClosestPointOnRoute(_current!);
+
+    // Animate camera with smooth zoom and tilt like Waze/Google Maps
+    _animateNavigationStart();
+
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 3,
@@ -299,61 +402,211 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     setState(() {
       _isNavigating = true;
+      _hasShownArrivalNotification = false;
     });
 
     _showNotification('Navigation started', Icons.navigation, primaryGreen);
   }
 
+  Future<void> _animateNavigationStart() async {
+    if (_controller == null || _current == null) return;
+
+    // Step 1: Zoom out to show full route (like Google Maps overview)
+    if (_originalRoutePoints.isNotEmpty) {
+      // Calculate bounds of the route
+      double minLat = _originalRoutePoints.first.latitude;
+      double maxLat = _originalRoutePoints.first.latitude;
+      double minLng = _originalRoutePoints.first.longitude;
+      double maxLng = _originalRoutePoints.first.longitude;
+
+      for (var point in _originalRoutePoints) {
+        if (point.latitude < minLat) minLat = point.latitude;
+        if (point.latitude > maxLat) maxLat = point.latitude;
+        if (point.longitude < minLng) minLng = point.longitude;
+        if (point.longitude > maxLng) maxLng = point.longitude;
+      }
+
+      final bounds = LatLngBounds(
+        southwest: LatLng(minLat, minLng),
+        northeast: LatLng(maxLat, maxLng),
+      );
+
+      // Animate to show full route
+      await _controller!.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, 100),
+      );
+
+      // Wait a moment to show the full route
+      await Future.delayed(const Duration(milliseconds: 1200));
+    }
+
+    // Step 2: Zoom into navigation view (like Waze entering navigation mode)
+    await _controller!.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: _current!,
+          zoom: 18.5, // Closer zoom for navigation
+          bearing: _currentBearing,
+          tilt: 55, // More tilted for 3D effect
+        ),
+      ),
+    );
+
+    // Step 3: Settle into final navigation view
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    if (mounted && _controller != null && _current != null) {
+      _controller!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _current!,
+            zoom: 19, // Final navigation zoom
+            bearing: _currentBearing,
+            tilt: 60, // Navigation tilt
+          ),
+        ),
+      );
+    }
+  }
+
+  void _findClosestPointOnRoute(LatLng currentLocation) {
+    if (_originalRoutePoints.isEmpty) return;
+
+    double minDistance = double.infinity;
+    int closestIndex = 0;
+
+    for (int i = 0; i < _originalRoutePoints.length; i++) {
+      final distance = _calculateDistance(
+        currentLocation.latitude,
+        currentLocation.longitude,
+        _originalRoutePoints[i].latitude,
+        _originalRoutePoints[i].longitude,
+      );
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = i;
+      }
+    }
+
+    _closestPointIndex = closestIndex;
+    
+    // Update route points to start from closest point
+    if (closestIndex < _originalRoutePoints.length) {
+      _routePoints = _originalRoutePoints.sublist(closestIndex);
+    }
+  }
+
   void _onLocationUpdate(Position position) {
+    final newLocation = LatLng(position.latitude, position.longitude);
+    
     setState(() {
-      _current = LatLng(position.latitude, position.longitude);
-      _currentSpeed = position.speed; // UPDATE SPEED
+      _current = newLocation;
+      _currentSpeed = position.speed;
       
-      // Use GPS heading only when moving fast enough
-      // Otherwise compass will handle rotation
-      if (position.speed > 1.5) { // Moving faster than 1.5 m/s
+      if (position.speed > 1.5) {
         _currentBearing = position.heading;
+      }
+
+      // Add to traveled path with minimum distance threshold
+      if (_traveledPath.isEmpty || 
+          _calculateDistance(
+            _traveledPath.last.latitude,
+            _traveledPath.last.longitude,
+            newLocation.latitude,
+            newLocation.longitude,
+          ) > 5) {
+        _traveledPath.add(newLocation);
+      }
+
+      // Update remaining route accurately
+      if (_originalRoutePoints.isNotEmpty) {
+        _updateRemainingRouteAccurate(newLocation);
       }
     });
 
     _updateUserMarker(position);
+    _updatePolylines();
 
     if (_isFollowingUser && _controller != null) {
       _controller!.animateCamera(
         CameraUpdate.newCameraPosition(
           CameraPosition(
-            target: LatLng(position.latitude, position.longitude),
+            target: newLocation,
             zoom: _currentZoom,
             bearing: _currentBearing,
-            tilt: 50,
+            tilt: 60, // Navigation tilt
           ),
         ),
       );
     }
 
-    if (_routePoints.isNotEmpty && !_hasReachedDestination) {
+    if (_originalRoutePoints.isNotEmpty && !_hasReachedDestination) {
       _calculateNavigationProgress(position);
     }
   }
 
+  void _updateRemainingRouteAccurate(LatLng currentLocation) {
+    if (_originalRoutePoints.isEmpty) return;
+
+    // Find the closest point on the route
+    double minDistance = double.infinity;
+    int closestIndex = _closestPointIndex;
+
+    // Search in a window around the current closest point for efficiency
+    int searchStart = max(0, _closestPointIndex - 5);
+    int searchEnd = min(_originalRoutePoints.length, _closestPointIndex + 20);
+
+    for (int i = searchStart; i < searchEnd; i++) {
+      final distance = _calculateDistance(
+        currentLocation.latitude,
+        currentLocation.longitude,
+        _originalRoutePoints[i].latitude,
+        _originalRoutePoints[i].longitude,
+      );
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = i;
+      }
+    }
+
+    // Update the closest point index
+    if (closestIndex > _closestPointIndex) {
+      _closestPointIndex = closestIndex;
+    }
+
+    // Update route points to show remaining path accurately
+    // Include current location as first point for smooth transition
+    if (_closestPointIndex < _originalRoutePoints.length - 1) {
+      _routePoints = [
+        currentLocation,
+        ..._originalRoutePoints.sublist(_closestPointIndex + 1),
+      ];
+    } else if (_closestPointIndex == _originalRoutePoints.length - 1) {
+      // Near the end, just show line to destination
+      _routePoints = [
+        currentLocation,
+        _originalRoutePoints.last,
+      ];
+    }
+  }
+
   void _updateUserMarker(Position position) {
-    // Remove old marker and circle
     _markers.removeWhere((m) => m.markerId.value == 'user_location');
     _circles.clear();
     
-    // Add pulsing accuracy circle
     _circles.add(
       Circle(
         circleId: const CircleId('accuracy_circle'),
         center: LatLng(position.latitude, position.longitude),
-        radius: position.accuracy.clamp(5.0, 100.0), // Limit circle size
+        radius: position.accuracy.clamp(5.0, 100.0),
         fillColor: const Color(0xFF4285F4).withOpacity(0.1),
         strokeColor: const Color(0xFF4285F4).withOpacity(0.3),
         strokeWidth: 2,
       ),
     );
     
-    // Add user location marker (use custom icon or fallback)
     _markers.add(
       Marker(
         markerId: const MarkerId('user_location'),
@@ -374,13 +627,27 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   }
 
   void _calculateNavigationProgress(Position currentPos) {
-    if (_steps.isEmpty || _currentStepIndex >= _steps.length) return;
+    if (_steps.isEmpty) return;
 
     final currentLatLng = LatLng(currentPos.latitude, currentPos.longitude);
     
-    final nextStepIndex = _currentStepIndex + 1;
-    if (nextStepIndex < _routePoints.length) {
-      final nextPoint = _routePoints[nextStepIndex];
+    // Calculate distance to destination
+    final destDistance = _calculateDistance(
+      currentLatLng.latitude,
+      currentLatLng.longitude,
+      _originalRoutePoints.last.latitude,
+      _originalRoutePoints.last.longitude,
+    );
+
+    // Check if reached destination (within 20 meters)
+    if (destDistance < 20 && !_hasReachedDestination) {
+      _reachedDestination();
+      return;
+    }
+
+    // Update step progress
+    if (_closestPointIndex < _originalRoutePoints.length - 1) {
+      final nextPoint = _originalRoutePoints[_closestPointIndex + 1];
       
       _distanceToNextStep = _calculateDistance(
         currentLatLng.latitude,
@@ -389,21 +656,9 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         nextPoint.longitude,
       );
 
-      if (_distanceToNextStep < 20 && _currentStepIndex < _steps.length - 1) {
+      // Advance step if close enough (within 25 meters)
+      if (_distanceToNextStep < 25 && _currentStepIndex < _steps.length - 1) {
         _advanceToNextStep();
-      }
-
-      if (_currentStepIndex == _steps.length - 1) {
-        final destDistance = _calculateDistance(
-          currentLatLng.latitude,
-          currentLatLng.longitude,
-          _routePoints.last.latitude,
-          _routePoints.last.longitude,
-        );
-
-        if (destDistance < 15) {
-          _reachedDestination();
-        }
       }
     }
 
@@ -424,6 +679,8 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   }
 
   void _reachedDestination() {
+    if (_hasReachedDestination) return;
+
     setState(() {
       _hasReachedDestination = true;
       _isNavigating = false;
@@ -431,6 +688,9 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     _positionStream?.cancel();
     
+    // Show notification
+    _showArrivalNotification();
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -442,7 +702,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
             const Text('Arrived!'),
           ],
         ),
-        content: const Text('You have reached your destination.'),
+        content: Text('You have reached ${widget.routeTitle ?? "your destination"}! 🎉'),
         actions: [
           TextButton(
             onPressed: () {
@@ -459,30 +719,44 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   void _calculateRemainingStats() {
     double totalDistance = 0;
     
-    if (_current != null && _routePoints.isNotEmpty) {
-      if (_currentStepIndex < _routePoints.length) {
+    if (_current != null && _originalRoutePoints.isNotEmpty && _closestPointIndex < _originalRoutePoints.length) {
+      // Distance from current location to next point
+      if (_closestPointIndex + 1 < _originalRoutePoints.length) {
         totalDistance += _calculateDistance(
           _current!.latitude,
           _current!.longitude,
-          _routePoints[_currentStepIndex].latitude,
-          _routePoints[_currentStepIndex].longitude,
+          _originalRoutePoints[_closestPointIndex + 1].latitude,
+          _originalRoutePoints[_closestPointIndex + 1].longitude,
         );
 
-        for (int i = _currentStepIndex; i < _routePoints.length - 1; i++) {
+        // Sum up remaining segments
+        for (int i = _closestPointIndex + 1; i < _originalRoutePoints.length - 1; i++) {
           totalDistance += _calculateDistance(
-            _routePoints[i].latitude,
-            _routePoints[i].longitude,
-            _routePoints[i + 1].latitude,
-            _routePoints[i + 1].longitude,
+            _originalRoutePoints[i].latitude,
+            _originalRoutePoints[i].longitude,
+            _originalRoutePoints[i + 1].latitude,
+            _originalRoutePoints[i + 1].longitude,
           );
         }
+      } else {
+        // Just distance to final destination
+        totalDistance = _calculateDistance(
+          _current!.latitude,
+          _current!.longitude,
+          _originalRoutePoints.last.latitude,
+          _originalRoutePoints.last.longitude,
+        );
       }
     }
 
     _totalDistanceRemaining = totalDistance;
 
-    final hours = totalDistance / 5000;
+    // Calculate ETA based on mode
+    final mode = widget.routeData?['mode'] ?? 'walking';
+    final speedKmh = mode == 'walking' ? 5.0 : 15.0; // walking: 5km/h, biking: 15km/h
+    final hours = (totalDistance / 1000) / speedKmh;
     final minutes = (hours * 60).round();
+    
     _estimatedTimeRemaining = minutes > 60
         ? '${(minutes / 60).floor()}h ${minutes % 60}min'
         : '${minutes}min';
@@ -557,7 +831,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
             target: _current!,
             zoom: _currentZoom,
             bearing: _currentBearing,
-            tilt: 50,
+            tilt: _isNavigating ? 60 : 45,
           ),
         ),
       );
@@ -605,7 +879,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
                   ),
                   markers: _markers,
                   polylines: _polylines,
-                  circles: _circles, // ADD THIS
+                  circles: _circles,
                   myLocationEnabled: false,
                   myLocationButtonEnabled: false,
                   compassEnabled: true,
@@ -755,6 +1029,29 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     );
   }
 
+  Widget _buildStatItem(IconData icon, String value, String label) {
+    return Column(
+      children: [
+        Icon(icon, color: primaryGreen, size: 20),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: Colors.grey[600],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildStartPanel() {
     final mode = widget.routeData?['mode'] ?? 'walking';
     final routeName = widget.routeTitle ?? 'Route';
@@ -837,35 +1134,12 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       style: ElevatedButton.styleFrom(
         backgroundColor: Colors.red.shade600,
         foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
       ),
-    );
-  }
-
-  Widget _buildStatItem(IconData icon, String value, String label) {
-    return Column(
-      children: [
-        Icon(icon, color: primaryGreen, size: 20),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey[600],
-          ),
-        ),
-      ],
     );
   }
 }

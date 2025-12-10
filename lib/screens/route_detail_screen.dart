@@ -568,7 +568,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                             Icon(Icons.navigation, size: 24),
                             SizedBox(width: 8),
                             Text(
-                              'Start Navigation',
+                              'wvigation',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,

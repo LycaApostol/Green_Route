@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:otp/otp.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -13,13 +15,146 @@ class _LoginScreenState extends State<LoginScreen> {
   final _pwCtrl = TextEditingController();
   bool _loading = false;
 
+  // Verify TOTP code
+  bool _verifyTotpCode(String code, String secret) {
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final currentCode = OTP.generateTOTPCodeString(
+        secret,
+        now,
+        length: 6,
+        interval: 30,
+        algorithm: Algorithm.SHA1,
+        isGoogle: true,
+      );
+      
+      // Also check previous and next time window for clock skew
+      final prevCode = OTP.generateTOTPCodeString(
+        secret,
+        now - 30000,
+        length: 6,
+        interval: 30,
+        algorithm: Algorithm.SHA1,
+        isGoogle: true,
+      );
+      
+      final nextCode = OTP.generateTOTPCodeString(
+        secret,
+        now + 30000,
+        length: 6,
+        interval: 30,
+        algorithm: Algorithm.SHA1,
+        isGoogle: true,
+      );
+      
+      return code == currentCode || code == prevCode || code == nextCode;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> _check2FARequired(String userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Check if 2FA is enabled for any user (in a real app, you'd store this per user)
+    final twoFactorEnabled = prefs.getBool('two_factor_enabled') ?? false;
+    final totpSecret = prefs.getString('totp_secret');
+    
+    return twoFactorEnabled && totpSecret != null;
+  }
+
+  Future<bool> _show2FADialog() async {
+    final prefs = await SharedPreferences.getInstance();
+    final totpSecret = prefs.getString('totp_secret');
+    
+    if (totpSecret == null) return true;
+
+    final TextEditingController codeController = TextEditingController();
+    
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Two-Factor Authentication'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter the 6-digit code from your authenticator app:',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: codeController,
+              decoration: const InputDecoration(
+                labelText: 'Verification Code',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.lock),
+                hintText: '000000',
+              ),
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              autofocus: true,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final code = codeController.text.trim();
+              if (code.length == 6) {
+                Navigator.pop(ctx, _verifyTotpCode(code, totpSecret));
+              } else {
+                ScaffoldMessenger.of(ctx).showSnackBar(
+                  const SnackBar(content: Text('Please enter a 6-digit code')),
+                );
+              }
+            },
+            child: const Text('Verify'),
+          ),
+        ],
+      ),
+    );
+
+    return result ?? false;
+  }
+
   Future<void> _loginEmail() async {
     setState(() => _loading = true);
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailCtrl.text.trim(),
         password: _pwCtrl.text,
       );
+      
+      // Check if 2FA is required
+      final requires2FA = await _check2FARequired(userCredential.user!.uid);
+      
+      if (requires2FA) {
+        // Show 2FA dialog
+        final verified = await _show2FADialog();
+        
+        if (!verified) {
+          // Sign out if 2FA verification fails
+          await FirebaseAuth.instance.signOut();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Invalid verification code. Login cancelled.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          setState(() => _loading = false);
+          return;
+        }
+      }
+      
+      // Proceed to home if authentication successful
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/home');
       }
@@ -39,7 +174,28 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _loginWithGitHub() async {
     try {
       GithubAuthProvider githubProvider = GithubAuthProvider();
-      await FirebaseAuth.instance.signInWithProvider(githubProvider);
+      final userCredential = await FirebaseAuth.instance.signInWithProvider(githubProvider);
+      
+      // Check if 2FA is required
+      final requires2FA = await _check2FARequired(userCredential.user!.uid);
+      
+      if (requires2FA) {
+        final verified = await _show2FADialog();
+        
+        if (!verified) {
+          await FirebaseAuth.instance.signOut();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Invalid verification code. Login cancelled.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+      }
+      
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/home');
       }
@@ -59,7 +215,28 @@ class _LoginScreenState extends State<LoginScreen> {
       if (result.status == LoginStatus.success) {
         final OAuthCredential credential = 
             FacebookAuthProvider.credential(result.accessToken!.token);
-        await FirebaseAuth.instance.signInWithCredential(credential);
+        final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+        
+        // Check if 2FA is required
+        final requires2FA = await _check2FARequired(userCredential.user!.uid);
+        
+        if (requires2FA) {
+          final verified = await _show2FADialog();
+          
+          if (!verified) {
+            await FirebaseAuth.instance.signOut();
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Invalid verification code. Login cancelled.'),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+            return;
+          }
+        }
+        
         if (mounted) {
           Navigator.pushReplacementNamed(context, '/home');
         }
