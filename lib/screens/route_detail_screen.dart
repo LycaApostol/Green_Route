@@ -170,6 +170,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       final route = {
         'title': widget.title,
         'subtitle': widget.subtitle,
+        'distance': widget.routeData?['distance'] ?? 'N/A',
+        'duration': widget.routeData?['duration'] ?? 'N/A',
+        'mode': widget.routeData?['mode'] ?? 'walking',
         'meta': widget.routeData ?? {},
       };
       await _db.addRecentRoute(uid, route);
