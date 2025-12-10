@@ -128,7 +128,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           );
         }
       } else {
-        // Remove from favorites - find the document ID first
         final favorites = await _db.streamFavorites(uid).first;
         final favoriteToRemove = favorites.firstWhere(
           (fav) => fav['title'] == widget.title && fav['subtitle'] == widget.subtitle,
@@ -155,7 +154,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
         }
       }
     } catch (e) {
-      // Revert state if error
       setState(() => _isFavorite = !_isFavorite);
       
       if (mounted) {
@@ -179,7 +177,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
     
     if (!mounted) return;
     
-    // Pass route data to MapRouteScreen for live navigation
     Navigator.push(
       context, 
       MaterialPageRoute(
@@ -220,7 +217,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Extract route data
     final mode = widget.routeData?['mode'] ?? 'walking';
     final distance = widget.routeData?['distance'] ?? '4.1 km';
     final duration = widget.routeData?['duration'] ?? '55 min';
@@ -234,15 +230,14 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
           'longitude': point['longitude'],
         }).toList() ?? [];
 
-    final primaryColor = const Color(0xFF34A853); // Green for all modes
-    final lightColor = const Color(0xFFE8F5E9); // Light green
-    final darkColor = const Color(0xFF2E7D32); // Dark green
+    final primaryColor = const Color(0xFF34A853);
+    final lightColor = const Color(0xFFE8F5E9);
+    final darkColor = const Color(0xFF2E7D32);
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
       body: CustomScrollView(
         slivers: [
-          // Animated App Bar with Favorite Button
           SliverAppBar(
             expandedHeight: 320,
             pinned: true,
@@ -250,7 +245,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             foregroundColor: Colors.black,
             elevation: 0,
             actions: [
-              // Favorite Button
               _isCheckingFavorite
                   ? const Padding(
                       padding: EdgeInsets.all(16.0),
@@ -285,7 +279,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
               background: Column(
                 children: [
                   const SizedBox(height: 60),
-                  // Route Type Header with Animation
                   FadeTransition(
                     opacity: _fadeAnimation,
                     child: SlideTransition(
@@ -389,7 +382,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Interactive Map
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -439,9 +431,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                                           polylinePoints.first['latitude'],
                                           polylinePoints.first['longitude'],
                                         ),
-                                        icon: maps.BitmapDescriptor.defaultMarkerWithHue(
-                                          120.0 // Bright green hue
-                                        ),
+                                        icon: maps.BitmapDescriptor.defaultMarkerWithHue(120.0),
                                         infoWindow: const maps.InfoWindow(title: 'Start'),
                                       ),
                                       maps.Marker(
@@ -450,9 +440,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                                           polylinePoints.last['latitude'],
                                           polylinePoints.last['longitude'],
                                         ),
-                                        icon: maps.BitmapDescriptor.defaultMarkerWithHue(
-                                          0.0 // Bright red hue
-                                        ),
+                                        icon: maps.BitmapDescriptor.defaultMarkerWithHue(0.0),
                                         infoWindow: const maps.InfoWindow(title: 'Destination'),
                                       ),
                                     },
@@ -499,7 +487,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
             ),
           ),
           
-          // Content
           SliverToBoxAdapter(
             child: FadeTransition(
               opacity: _fadeAnimation,
@@ -508,11 +495,11 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Stats Cards
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildAnimatedStatCard(
+                    IntrinsicHeight(
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _buildAnimatedStatCard(
                             icon: Icons.access_time,
                             label: 'Duration',
                             value: duration,
@@ -532,10 +519,10 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         ),
                       ],
                     ),
+                  ),
                     
                     const SizedBox(height: 12),
                     
-                    // Green Score Card
                     _buildAnimatedStatCard(
                       icon: Icons.eco,
                       label: 'Green Score',
@@ -547,17 +534,16 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                     
                     const SizedBox(height: 24),
                     
-                    // Start Button
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 300),
                       child: ElevatedButton(
                         onPressed: () => _onStart(context),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2E7D32), // Dark green
+                          backgroundColor: const Color(0xFF2E7D32),
                           foregroundColor: Colors.white,
                           minimumSize: const Size.fromHeight(56),
                           elevation: 4,
-                          shadowColor: const Color(0xFF34A853).withOpacity(0.5), // Green shadow
+                          shadowColor: const Color(0xFF34A853).withOpacity(0.5),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
@@ -568,7 +554,7 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                             Icon(Icons.navigation, size: 24),
                             SizedBox(width: 8),
                             Text(
-                              'wvigation',
+                              'Start Navigation',
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -579,11 +565,9 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                       ),
                     ),
                     
-                    // Directions Section
                     if (steps.isNotEmpty) ...[
                       const SizedBox(height: 32),
                       
-                      // Directions Header
                       InkWell(
                         onTap: () {
                           setState(() {
@@ -655,7 +639,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         ),
                       ),
                       
-                      // Animated Directions List
                       AnimatedSize(
                         duration: const Duration(milliseconds: 300),
                         curve: Curves.easeInOut,
@@ -704,10 +687,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       duration: Duration(milliseconds: 600 + delay),
       curve: Curves.easeOutBack,
       builder: (context, animValue, child) {
+        final clampedValue = animValue.clamp(0.0, 1.0);
+        
         return Transform.scale(
-          scale: animValue,
+          scale: clampedValue,
           child: Opacity(
-            opacity: animValue,
+            opacity: clampedValue,
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -781,10 +766,12 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
       duration: Duration(milliseconds: 400 + (stepIndex * 50)),
       curve: Curves.easeOut,
       builder: (context, animValue, child) {
+        final clampedValue = animValue.clamp(0.0, 1.0);
+        
         return Transform.translate(
-          offset: Offset(0, 20 * (1 - animValue)),
+          offset: Offset(0, 20 * (1 - clampedValue)),
           child: Opacity(
-            opacity: animValue,
+            opacity: clampedValue,
             child: Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: InkWell(
@@ -816,7 +803,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Step number
                       Container(
                         width: 36,
                         height: 36,
@@ -850,8 +836,6 @@ class _RouteDetailScreenState extends State<RouteDetailScreen>
                         ),
                       ),
                       const SizedBox(width: 14),
-                      
-                      // Step details
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
