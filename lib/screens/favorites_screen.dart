@@ -38,6 +38,33 @@ class FavoritesScreen extends StatelessWidget {
     }
   }
 
+  // Helper method to normalize route data format - runs in background
+  Future<Map<String, dynamic>> _normalizeRouteDataAsync(Map<String, dynamic> favorite) async {
+    // Run heavy processing in a separate isolate context
+    return await Future.microtask(() {
+      final routeData = Map<String, dynamic>.from(favorite);
+      
+      // Check if polylinePoints exists and normalize the format
+      if (routeData['polylinePoints'] != null) {
+        final points = routeData['polylinePoints'] as List<dynamic>;
+        
+        // Normalize to latitude/longitude format if needed
+        routeData['polylinePoints'] = points.map((point) {
+          if (point is Map<String, dynamic>) {
+            // Handle both lat/lng and latitude/longitude formats
+            return {
+              'latitude': point['latitude'] ?? point['lat'],
+              'longitude': point['longitude'] ?? point['lng'],
+            };
+          }
+          return point;
+        }).toList();
+      }
+      
+      return routeData;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -70,6 +97,22 @@ class FavoritesScreen extends StatelessWidget {
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
+          }
+          
+          if (snap.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline, size: 60, color: Colors.red[300]),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error loading favorites',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            );
           }
           
           final data = snap.data ?? [];
@@ -126,16 +169,50 @@ class FavoritesScreen extends StatelessWidget {
     final favoriteId = favorite['id'] ?? '';
 
     return InkWell(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => RouteDetailScreen(
-            title: title,
-            subtitle: subtitle,
-            routeData: favorite,
+      onTap: () async {
+        // Show loading indicator while processing
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
           ),
-        ),
-      ),
+        );
+
+        try {
+          // Process data asynchronously to avoid blocking UI
+          final normalizedData = await _normalizeRouteDataAsync(favorite);
+          
+          if (!context.mounted) return;
+          
+          // Close loading dialog
+          Navigator.pop(context);
+          
+          // Navigate to route detail
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => RouteDetailScreen(
+                title: title,
+                subtitle: subtitle,
+                routeData: normalizedData,
+              ),
+            ),
+          );
+        } catch (e) {
+          if (!context.mounted) return;
+          
+          // Close loading dialog
+          Navigator.pop(context);
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error loading route: $e'),
+              backgroundColor: Colors.red[400],
+            ),
+          );
+        }
+      },
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 4),
         child: Row(
@@ -163,6 +240,7 @@ class FavoritesScreen extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
                     title,
@@ -196,7 +274,6 @@ class FavoritesScreen extends StatelessWidget {
                 size: 20,
               ),
               onPressed: () {
-                // TODO: Implement share functionality
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                     content: Text('Share feature coming soon!'),

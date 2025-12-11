@@ -3,7 +3,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:math';
-import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'route_detail_screen.dart';
 
 const String googleApiKey = "";
@@ -80,18 +79,13 @@ class _RouteListScreenState extends State<RouteListScreen> {
         url += '&avoid=${avoidParams.join(',')}';
       }
 
-      print('Fetching routes with mode: $mode');
-      print('URL: $url');
-
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 
-        // FOR CYCLING: If no bicycling routes found, use driving routes as cycling-friendly alternatives
         if (widget.travelMode == 'Cycling' && 
             (data['status'] == 'ZERO_RESULTS' || data['routes'] == null || data['routes'].isEmpty)) {
-          print('No bicycling routes found, fetching driving routes as cycling alternatives...');
           await _fetchFallbackRoutes();
           return;
         }
@@ -112,7 +106,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
             
             final distanceValue = leg['distance']['value'] ?? 0;
             
-            // SIMULATED bike lane scoring for Cebu City
             int bikeLaneScore = 0;
             if (widget.travelMode == 'Cycling') {
               bikeLaneScore = _simulateBikeLaneScore(
@@ -122,7 +115,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
               );
             }
             
-            // SIMULATED elevation gain for Cebu City
             double elevationGain = 0;
             if (widget.travelMode == 'Cycling') {
               elevationGain = _simulateElevationGain(
@@ -131,6 +123,14 @@ class _RouteListScreenState extends State<RouteListScreen> {
                 distanceValue
               );
             }
+
+            // Generate route segments with characteristics
+            List<RouteSegment> segments = _generateRouteSegments(
+              polylineCoordinates,
+              route['summary'] ?? '',
+              bikeLaneScore,
+              elevationGain,
+            );
             
             routesList.add(RouteOption(
               summary: route['summary'] ?? 'Route',
@@ -141,6 +141,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
               distanceValue: distanceValue,
               bikeLaneScore: bikeLaneScore,
               elevationGain: elevationGain,
+              segments: segments,
               steps: (leg['steps'] as List).map((step) {
                 return RouteStep(
                   instruction: _stripHtml(step['html_instructions'] ?? ''),
@@ -186,7 +187,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
             });
           }
         } else if (data['status'] == 'ZERO_RESULTS') {
-          // For cycling, try fallback
           if (widget.travelMode == 'Cycling') {
             await _fetchFallbackRoutes();
           } else {
@@ -212,11 +212,9 @@ class _RouteListScreenState extends State<RouteListScreen> {
         loading = false;
         errorMessage = 'Error: $e';
       });
-      print('Error fetching routes: $e');
     }
   }
 
-  // Fallback: Fetch driving routes and present them as cycling-friendly alternatives
   Future<void> _fetchFallbackRoutes() async {
     try {
       String url = 'https://maps.googleapis.com/maps/api/directions/json?'
@@ -226,7 +224,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
           '&alternatives=true'
           '&key=$googleApiKey';
 
-      print('Fetching fallback driving routes for cycling...');
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
@@ -247,34 +244,38 @@ class _RouteListScreenState extends State<RouteListScreen> {
             }
             
             final distanceValue = leg['distance']['value'] ?? 0;
-            
-            // Adjust duration for cycling (roughly 2.5x driving time)
             final drivingDuration = leg['duration']['value'] ?? 0;
             final cyclingDurationMins = (drivingDuration * 2.5 / 60).round();
             
-            // SIMULATED bike lane scoring
             int bikeLaneScore = _simulateBikeLaneScore(
               polylineCoordinates, 
               route['summary'] ?? '',
               distanceValue
             );
             
-            // SIMULATED elevation gain
             double elevationGain = _simulateElevationGain(
               polylineCoordinates,
               route['summary'] ?? '',
               distanceValue
             );
+
+            List<RouteSegment> segments = _generateRouteSegments(
+              polylineCoordinates,
+              route['summary'] ?? '',
+              bikeLaneScore,
+              elevationGain,
+            );
             
             routesList.add(RouteOption(
               summary: route['summary'] ?? 'Route',
               distance: leg['distance']['text'] ?? '',
-              duration: '$cyclingDurationMins mins', // Adjusted for cycling
+              duration: '$cyclingDurationMins mins',
               polylinePoints: route['overview_polyline']['points'] ?? '',
               polylineCoordinates: polylineCoordinates,
               distanceValue: distanceValue,
               bikeLaneScore: bikeLaneScore,
               elevationGain: elevationGain,
+              segments: segments,
               steps: (leg['steps'] as List).map((step) {
                 return RouteStep(
                   instruction: _stripHtml(step['html_instructions'] ?? ''),
@@ -286,7 +287,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
             ));
           }
 
-          // Sort routes based on preferences
           if (widget.preferences['Prioritize bike lanes'] == true) {
             routesList.sort((a, b) {
               if (a.bikeLaneScore != b.bikeLaneScore) {
@@ -326,14 +326,111 @@ class _RouteListScreenState extends State<RouteListScreen> {
         loading = false;
         errorMessage = 'Error: $e';
       });
-      print('Error fetching fallback routes: $e');
     }
   }
 
-  // SIMULATED bike lane scoring based on route characteristics for Cebu City
-  int _simulateBikeLaneScore(List<maps.LatLng> coordinates, String summary, int distanceValue) {
+  // Generate route segments with different characteristics
+  List<RouteSegment> _generateRouteSegments(
+    List<maps.LatLng> coordinates,
+    String summary,
+    int bikeLaneScore,
+    double elevationGain,
+  ) {
+    if (coordinates.isEmpty) return [];
+
+    List<RouteSegment> segments = [];
     final random = Random(summary.hashCode);
     
+    // Divide route into segments (every ~10-15 points)
+    int segmentSize = max(10, coordinates.length ~/ 5);
+    
+    for (int i = 0; i < coordinates.length - 1; i += segmentSize) {
+      int endIndex = min(i + segmentSize, coordinates.length);
+      List<maps.LatLng> segmentPoints = coordinates.sublist(i, endIndex);
+      
+      // Determine segment characteristics based on preferences
+      SegmentType type = SegmentType.normal;
+      Color color = Colors.green;
+      
+      if (widget.travelMode == 'Cycling') {
+        // Check for bike lane preference
+        if (widget.preferences['Prioritize bike lanes'] == true) {
+          if (bikeLaneScore >= 10) {
+            type = random.nextDouble() > 0.3 ? SegmentType.bikeLane : SegmentType.normal;
+            color = type == SegmentType.bikeLane ? Colors.green.shade700 : Colors.green;
+          } else if (bikeLaneScore >= 7) {
+            type = random.nextDouble() > 0.5 ? SegmentType.bikeLane : SegmentType.normal;
+            color = type == SegmentType.bikeLane ? Colors.green.shade600 : Colors.green;
+          } else {
+            type = random.nextDouble() > 0.7 ? SegmentType.bikeLane : SegmentType.mixed;
+            color = type == SegmentType.bikeLane ? Colors.green : Colors.orange.shade600;
+          }
+        }
+        
+        // Check for hill preference
+        if (widget.preferences['Avoid steep hills'] == true) {
+          if (elevationGain > 80) {
+            type = random.nextDouble() > 0.4 ? SegmentType.steep : type;
+            color = type == SegmentType.steep ? Colors.red.shade600 : color;
+          } else if (elevationGain > 40) {
+            type = random.nextDouble() > 0.6 ? SegmentType.moderate : type;
+            color = type == SegmentType.moderate ? Colors.orange.shade700 : color;
+          }
+        }
+
+        // Check for scenic routes preference
+        if (widget.preferences['Scenic routes'] == true) {
+          if (random.nextDouble() > 0.6) {
+            type = SegmentType.scenic;
+            color = Colors.blue.shade600;
+          }
+        }
+
+        // Check for green spaces preference
+        if (widget.preferences['Prioritize green spaces'] == true) {
+          if (random.nextDouble() > 0.5) {
+            type = SegmentType.greenSpace;
+            color = Colors.teal.shade600;
+          }
+        }
+      } else if (widget.travelMode == 'Walking') {
+        // Check for shade coverage
+        if (widget.preferences['Shade coverage'] == true) {
+          if (random.nextDouble() > 0.5) {
+            type = SegmentType.shaded;
+            color = Colors.green.shade700;
+          }
+        }
+
+        // Check for pedestrian-friendly
+        if (widget.preferences['Pedestrian-friendly paths'] == true) {
+          if (random.nextDouble() > 0.4) {
+            type = SegmentType.pedestrian;
+            color = Colors.blue.shade600;
+          }
+        }
+
+        // Check for scenic routes
+        if (widget.preferences['Scenic routes'] == true) {
+          if (random.nextDouble() > 0.6) {
+            type = SegmentType.scenic;
+            color = Colors.purple.shade600;
+          }
+        }
+      }
+      
+      segments.add(RouteSegment(
+        points: segmentPoints,
+        type: type,
+        color: color,
+      ));
+    }
+    
+    return segments;
+  }
+
+  int _simulateBikeLaneScore(List<maps.LatLng> coordinates, String summary, int distanceValue) {
+    final random = Random(summary.hashCode);
     int baseScore = 0;
     
     final majorRoads = [
@@ -372,12 +469,10 @@ class _RouteListScreenState extends State<RouteListScreen> {
     return baseScore.clamp(1, 15);
   }
 
-  // SIMULATED elevation gain based on route location in Cebu
   double _simulateElevationGain(List<maps.LatLng> coordinates, String summary, int distanceValue) {
     if (coordinates.isEmpty) return 0;
     
     final random = Random(summary.hashCode);
-    
     double elevationPerKm = 0;
     
     final hillyAreas = [
@@ -468,6 +563,11 @@ class _RouteListScreenState extends State<RouteListScreen> {
       default:
         return Icons.directions;
     }
+  }
+
+  String _getRouteName(int index, RouteOption route) {
+    String shortName = widget.toAddress.split(',')[0].trim();
+    return shortName;
   }
 
   Widget _buildBikeLaneIndicator(RouteOption route) {
@@ -599,6 +699,100 @@ class _RouteListScreenState extends State<RouteListScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  // Build legend for route segments
+  Widget _buildRouteLegend() {
+    List<Widget> legendItems = [];
+
+    if (widget.travelMode == 'Cycling') {
+      if (widget.preferences['Prioritize bike lanes'] == true) {
+        legendItems.add(_legendItem(Colors.green.shade700, 'Dedicated bike lane'));
+        legendItems.add(_legendItem(Colors.orange.shade600, 'Mixed traffic'));
+      }
+      if (widget.preferences['Avoid steep hills'] == true) {
+        legendItems.add(_legendItem(Colors.green, 'Flat terrain'));
+        legendItems.add(_legendItem(Colors.orange.shade700, 'Moderate incline'));
+        legendItems.add(_legendItem(Colors.red.shade600, 'Steep hill'));
+      }
+      if (widget.preferences['Scenic routes'] == true) {
+        legendItems.add(_legendItem(Colors.blue.shade600, 'Scenic area'));
+      }
+      if (widget.preferences['Prioritize green spaces'] == true) {
+        legendItems.add(_legendItem(Colors.teal.shade600, 'Green space'));
+      }
+    } else if (widget.travelMode == 'Walking') {
+      if (widget.preferences['Shade coverage'] == true) {
+        legendItems.add(_legendItem(Colors.green.shade700, 'Shaded path'));
+      }
+      if (widget.preferences['Pedestrian-friendly paths'] == true) {
+        legendItems.add(_legendItem(Colors.blue.shade600, 'Pedestrian zone'));
+      }
+      if (widget.preferences['Scenic routes'] == true) {
+        legendItems.add(_legendItem(Colors.purple.shade600, 'Scenic area'));
+      }
+    }
+
+    if (legendItems.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.map, size: 16, color: Colors.grey.shade700),
+              const SizedBox(width: 6),
+              Text(
+                'Route Legend',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            children: legendItems,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendItem(Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 20,
+          height: 3,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            color: Colors.grey.shade700,
+          ),
+        ),
+      ],
     );
   }
 
@@ -735,6 +929,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                   .toList(),
                             ),
                           ],
+                          _buildRouteLegend(),
                         ],
                       ),
                     ),
@@ -746,6 +941,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                         itemBuilder: (context, index) {
                           final route = routes[index];
                           final isRecommended = index == 0;
+                          final routeName = _getRouteName(index, route);
                           
                           return Card(
                             margin: const EdgeInsets.only(bottom: 16),
@@ -792,17 +988,9 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                     ),
                                   ),
                                 
-                                if (route.polylineCoordinates.isNotEmpty)
+                                if (route.segments.isNotEmpty)
                                   Container(
                                     height: 180,
-                                    decoration: BoxDecoration(
-                                      borderRadius: isRecommended 
-                                          ? null
-                                          : const BorderRadius.only(
-                                              topLeft: Radius.circular(16),
-                                              topRight: Radius.circular(16),
-                                            ),
-                                    ),
                                     child: ClipRRect(
                                       borderRadius: isRecommended 
                                           ? BorderRadius.zero
@@ -817,18 +1005,16 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               target: route.polylineCoordinates.first,
                                               zoom: 13,
                                             ),
-                                            polylines: {
-                                              maps.Polyline(
-                                                polylineId: maps.PolylineId('route_$index'),
-                                                points: route.polylineCoordinates,
-                                                color: isRecommended 
-                                                    ? Colors.green.shade700
-                                                    : Colors.green,
+                                            polylines: route.segments.map((segment) {
+                                              return maps.Polyline(
+                                                polylineId: maps.PolylineId('segment_${segment.hashCode}'),
+                                                points: segment.points,
+                                                color: segment.color,
                                                 width: isRecommended ? 6 : 5,
                                                 startCap: maps.Cap.roundCap,
                                                 endCap: maps.Cap.roundCap,
-                                              ),
-                                            },
+                                              );
+                                            }).toSet(),
                                             markers: {
                                               maps.Marker(
                                                 markerId: const maps.MarkerId('start'),
@@ -860,7 +1046,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                             child: Material(
                                               color: Colors.transparent,
                                               child: InkWell(
-                                                onTap: () => _navigateToDetail(route, index),
+                                                onTap: () => _navigateToDetail(route, index, routeName),
                                                 child: Container(),
                                               ),
                                             ),
@@ -871,7 +1057,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                   ),
                                 
                                 InkWell(
-                                  onTap: () => _navigateToDetail(route, index),
+                                  onTap: () => _navigateToDetail(route, index, routeName),
                                   borderRadius: const BorderRadius.only(
                                     bottomLeft: Radius.circular(16),
                                     bottomRight: Radius.circular(16),
@@ -906,7 +1092,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                                 borderRadius: BorderRadius.circular(6),
                                               ),
                                               child: Text(
-                                                '${widget.travelMode} Route ${index + 1}',
+                                                routeName,
                                                 style: const TextStyle(
                                                   color: Colors.white,
                                                   fontSize: 12,
@@ -917,14 +1103,27 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                           ],
                                         ),
                                         const SizedBox(height: 8),
-                                        Text(
-                                          route.summary,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.route,
+                                              size: 14,
+                                              color: Colors.grey[600],
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                'via ${route.summary}',
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: Colors.grey[700],
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                         const SizedBox(height: 12),
                                         Row(
@@ -932,30 +1131,28 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                             Icon(Icons.straighten, size: 16, color: Colors.grey[600]),
                                             const SizedBox(width: 6),
                                             Text(
-                                              'More Details',
+                                              route.distance,
                                               style: TextStyle(
                                                 fontSize: 13,
-                                                color: isRecommended 
-                                                    ? Colors.green.shade800
-                                                    : Colors.green.shade700,
-                                                fontWeight: FontWeight.w600,
+                                                color: Colors.grey[800],
+                                                fontWeight: FontWeight.w500,
                                               ),
                                             ),
-                                            const SizedBox(width: 4),
-                                            Icon(
-                                              Icons.arrow_forward_ios,
-                                              size: 14,
-                                              color: isRecommended 
-                                                  ? Colors.green.shade800
-                                                  : Colors.green.shade700,
+                                            const SizedBox(width: 12),
+                                            Icon(Icons.access_time, size: 16, color: Colors.grey[600]),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              route.duration,
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: Colors.grey[800],
+                                                fontWeight: FontWeight.w500,
+                                              ),
                                             ),
                                           ],
                                         ),
                                         
-                                        // Bike lane indicator
                                         _buildBikeLaneIndicator(route),
-                                        
-                                        // Elevation indicator
                                         _buildElevationIndicator(route),
                                         
                                         const SizedBox(height: 12),
@@ -1035,7 +1232,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
     });
   }
 
-  void _navigateToDetail(RouteOption route, int index) {
+  void _navigateToDetail(RouteOption route, int index, String routeName) {
     final polylinePoints = route.polylineCoordinates
         .map((point) => {
               'latitude': point.latitude,
@@ -1063,13 +1260,38 @@ class _RouteListScreenState extends State<RouteListScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => RouteDetailScreen(
-          title: '${widget.travelMode} Route ${index + 1}',
+          title: routeName,
           subtitle: route.summary,
           routeData: routeData,
         ),
       ),
     );
   }
+}
+
+// Segment types for different route characteristics
+enum SegmentType {
+  normal,
+  bikeLane,
+  mixed,
+  steep,
+  moderate,
+  scenic,
+  greenSpace,
+  shaded,
+  pedestrian,
+}
+
+class RouteSegment {
+  final List<maps.LatLng> points;
+  final SegmentType type;
+  final Color color;
+
+  RouteSegment({
+    required this.points,
+    required this.type,
+    required this.color,
+  });
 }
 
 class RouteOption {
@@ -1082,6 +1304,7 @@ class RouteOption {
   final List<RouteStep> steps;
   final int bikeLaneScore;
   final double elevationGain;
+  final List<RouteSegment> segments;
 
   RouteOption({
     required this.summary,
@@ -1093,6 +1316,7 @@ class RouteOption {
     required this.steps,
     this.bikeLaneScore = 0,
     this.elevationGain = 0.0,
+    this.segments = const [],
   });
 }
 

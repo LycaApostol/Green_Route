@@ -7,6 +7,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../services/firestore_service.dart';
 
 class MapRouteScreen extends StatefulWidget {
   final Map<String, dynamic>? routeData;
@@ -28,11 +30,9 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   StreamSubscription<Position>? _positionStream;
   StreamSubscription<CompassEvent>? _compassStream;
 
-  // Notification plugin
   final FlutterLocalNotificationsPlugin _notificationsPlugin = 
       FlutterLocalNotificationsPlugin();
 
-  // Navigation state
   bool _isNavigating = false;
   int _currentStepIndex = 0;
   double _distanceToNextStep = 0;
@@ -42,7 +42,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   double _currentBearing = 0.0;
   double _currentSpeed = 0.0;
 
-  // Route data
   List<LatLng> _routePoints = [];
   List<LatLng> _originalRoutePoints = [];
   List<Map<String, dynamic>> _steps = [];
@@ -53,22 +52,20 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   BitmapDescriptor? _endIcon;
   BitmapDescriptor? _userLocationIcon;
 
-  // Traveled path tracking
   List<LatLng> _traveledPath = [];
   
-  // Notification settings
   bool _allowNotifications = true;
   bool _arrivalNotifications = true;
 
-  // UI state
   bool _isFollowingUser = true;
-  double _currentZoom = 19.0; // Changed default for navigation
+  double _currentZoom = 17.0;
 
-  // Enhanced tracking
   int _closestPointIndex = 0;
   bool _hasShownArrivalNotification = false;
 
-  // Enhanced green palette
+  // Route segments with characteristics
+  List<RouteSegment> _routeSegments = [];
+
   static const Color primaryGreen = Color(0xFF10B981);
   static const Color darkGreen = Color(0xFF059669);
   static const Color lightGreen = Color(0xFFD1FAE5);
@@ -176,6 +173,47 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     });
   }
 
+  Future<void> _saveRouteToHistory() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || widget.routeData == null) return;
+
+    try {
+      final polylinePoints = widget.routeData?['polylinePoints'] as List<dynamic>?;
+      
+      if (polylinePoints == null || polylinePoints.isEmpty) return;
+
+      final originLat = polylinePoints.first['latitude'] as double;
+      final originLng = polylinePoints.first['longitude'] as double;
+      final destLat = polylinePoints.last['latitude'] as double;
+      final destLng = polylinePoints.last['longitude'] as double;
+
+      final originAddress = widget.routeData?['originAddress'] ?? 'Start Location';
+      final destAddress = widget.routeData?['destAddress'] ?? 'Destination';
+
+      final routeDataToSave = {
+        'title': widget.routeTitle ?? 'Route',
+        'subtitle': destAddress,
+        'originAddress': originAddress,
+        'destAddress': destAddress,
+        'originLat': originLat,
+        'originLng': originLng,
+        'destLat': destLat,
+        'destLng': destLng,
+        'distance': widget.routeData?['distance'] ?? 'N/A',
+        'duration': widget.routeData?['duration'] ?? 'N/A',
+        'mode': widget.routeData?['mode'] ?? 'walking',
+        'polylinePoints': polylinePoints.map((p) => {
+          'lat': p['latitude'],
+          'lng': p['longitude'],
+        }).toList(),
+      };
+
+      await FirestoreService().addRecentRoute(user.uid, routeDataToSave);
+    } catch (e) {
+      print('Error saving route to history: $e');
+    }
+  }
+
   Future<void> _loadCustomMarkers() async {
     _startIcon = await BitmapDescriptor.fromAssetImage(
       const ImageConfiguration(size: Size(48, 48)),
@@ -258,6 +296,9 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
           .map((p) => LatLng(p['latitude'], p['longitude']))
           .toList();
       _originalRoutePoints = List.from(_routePoints);
+      
+      // Generate route segments with characteristics
+      _routeSegments = _generateRouteSegments(_originalRoutePoints);
     }
 
     final steps = widget.routeData?['steps'] as List<dynamic>?;
@@ -294,6 +335,95 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     setState(() {});
   }
 
+  // Generate route segments based on mode and simulated characteristics
+  List<RouteSegment> _generateRouteSegments(List<LatLng> coordinates) {
+    if (coordinates.isEmpty) return [];
+
+    List<RouteSegment> segments = [];
+    final mode = widget.routeData?['mode'] ?? 'walking';
+    final bikeLaneScore = widget.routeData?['bikeLaneScore'] ?? 0;
+    final elevationGain = widget.routeData?['elevationGain'] ?? 0.0;
+    final random = Random(coordinates.length);
+    
+    int segmentSize = max(5, coordinates.length ~/ 8);
+    
+    for (int i = 0; i < coordinates.length - 1; i += segmentSize) {
+      int endIndex = min(i + segmentSize, coordinates.length);
+      List<LatLng> segmentPoints = coordinates.sublist(i, endIndex);
+      
+      SegmentType type = SegmentType.normal;
+      Color color = primaryGreen;
+      String label = 'Normal route';
+      
+      if (mode == 'bicycling' || mode == 'cycling') {
+        // Bike lane segments
+        if (bikeLaneScore >= 10) {
+          type = random.nextDouble() > 0.3 ? SegmentType.bikeLane : SegmentType.normal;
+          color = type == SegmentType.bikeLane ? Colors.green.shade700 : primaryGreen;
+          label = type == SegmentType.bikeLane ? 'Dedicated bike lane' : 'Normal route';
+        } else if (bikeLaneScore >= 7) {
+          type = random.nextDouble() > 0.5 ? SegmentType.bikeLane : SegmentType.normal;
+          color = type == SegmentType.bikeLane ? Colors.green.shade600 : primaryGreen;
+          label = type == SegmentType.bikeLane ? 'Bike-friendly road' : 'Normal route';
+        } else {
+          type = random.nextDouble() > 0.7 ? SegmentType.bikeLane : SegmentType.mixed;
+          color = type == SegmentType.bikeLane ? primaryGreen : Colors.orange.shade600;
+          label = type == SegmentType.bikeLane ? 'Shared road' : 'Mixed traffic';
+        }
+        
+        // Elevation segments (can override)
+        if (elevationGain > 80) {
+          if (random.nextDouble() > 0.4) {
+            type = SegmentType.steep;
+            color = Colors.red.shade600;
+            label = 'Steep hill ahead';
+          }
+        } else if (elevationGain > 40) {
+          if (random.nextDouble() > 0.6) {
+            type = SegmentType.moderate;
+            color = Colors.orange.shade700;
+            label = 'Moderate incline';
+          }
+        }
+
+        // Scenic/green space (occasional)
+        if (random.nextDouble() > 0.75) {
+          type = random.nextBool() ? SegmentType.scenic : SegmentType.greenSpace;
+          color = type == SegmentType.scenic ? Colors.blue.shade600 : Colors.teal.shade600;
+          label = type == SegmentType.scenic ? 'Scenic area' : 'Green space';
+        }
+      } else if (mode == 'walking') {
+        // Walking segments
+        if (random.nextDouble() > 0.5) {
+          type = SegmentType.shaded;
+          color = Colors.green.shade700;
+          label = 'Shaded path';
+        }
+        
+        if (random.nextDouble() > 0.6) {
+          type = SegmentType.pedestrian;
+          color = Colors.blue.shade600;
+          label = 'Pedestrian zone';
+        }
+        
+        if (random.nextDouble() > 0.75) {
+          type = SegmentType.scenic;
+          color = Colors.purple.shade600;
+          label = 'Scenic walkway';
+        }
+      }
+      
+      segments.add(RouteSegment(
+        points: segmentPoints,
+        type: type,
+        color: color,
+        label: label,
+      ));
+    }
+    
+    return segments;
+  }
+
   void _updatePolylines() {
     _polylines.clear();
     
@@ -311,18 +441,38 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       );
     }
 
-    // Add remaining route (green) - shows actual remaining path
-    if (_routePoints.isNotEmpty) {
-      _polylines.add(
-        Polyline(
-          polylineId: const PolylineId('route'),
-          points: _routePoints,
-          color: primaryGreen,
-          width: 5,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-        ),
-      );
+    // Add remaining route segments with colors
+    if (_isNavigating && _closestPointIndex < _routeSegments.length) {
+      // Show remaining segments from current position
+      for (int i = _closestPointIndex ~/ max(5, _originalRoutePoints.length ~/ 8); 
+           i < _routeSegments.length; i++) {
+        final segment = _routeSegments[i];
+        _polylines.add(
+          Polyline(
+            polylineId: PolylineId('segment_$i'),
+            points: segment.points,
+            color: segment.color,
+            width: 6,
+            startCap: Cap.roundCap,
+            endCap: Cap.roundCap,
+          ),
+        );
+      }
+    } else if (!_isNavigating) {
+      // Show all segments before navigation starts
+      for (int i = 0; i < _routeSegments.length; i++) {
+        final segment = _routeSegments[i];
+        _polylines.add(
+          Polyline(
+            polylineId: PolylineId('segment_$i'),
+            points: segment.points,
+            color: segment.color,
+            width: 6,
+            startCap: Cap.roundCap,
+            endCap: Cap.roundCap,
+          ),
+        );
+      }
     }
   }
 
@@ -379,15 +529,10 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       return;
     }
 
-    // Initialize traveled path with current position
     _traveledPath.clear();
     _traveledPath.add(_current!);
 
-    // Find the closest point on route to start from
     _findClosestPointOnRoute(_current!);
-
-    // Animate camera with smooth zoom and tilt like Waze/Google Maps
-    _animateNavigationStart();
 
     const locationSettings = LocationSettings(
       accuracy: LocationAccuracy.high,
@@ -406,67 +551,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     });
 
     _showNotification('Navigation started', Icons.navigation, primaryGreen);
-  }
-
-  Future<void> _animateNavigationStart() async {
-    if (_controller == null || _current == null) return;
-
-    // Step 1: Zoom out to show full route (like Google Maps overview)
-    if (_originalRoutePoints.isNotEmpty) {
-      // Calculate bounds of the route
-      double minLat = _originalRoutePoints.first.latitude;
-      double maxLat = _originalRoutePoints.first.latitude;
-      double minLng = _originalRoutePoints.first.longitude;
-      double maxLng = _originalRoutePoints.first.longitude;
-
-      for (var point in _originalRoutePoints) {
-        if (point.latitude < minLat) minLat = point.latitude;
-        if (point.latitude > maxLat) maxLat = point.latitude;
-        if (point.longitude < minLng) minLng = point.longitude;
-        if (point.longitude > maxLng) maxLng = point.longitude;
-      }
-
-      final bounds = LatLngBounds(
-        southwest: LatLng(minLat, minLng),
-        northeast: LatLng(maxLat, maxLng),
-      );
-
-      // Animate to show full route
-      await _controller!.animateCamera(
-        CameraUpdate.newLatLngBounds(bounds, 100),
-      );
-
-      // Wait a moment to show the full route
-      await Future.delayed(const Duration(milliseconds: 1200));
-    }
-
-    // Step 2: Zoom into navigation view (like Waze entering navigation mode)
-    await _controller!.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _current!,
-          zoom: 18.5, // Closer zoom for navigation
-          bearing: _currentBearing,
-          tilt: 55, // More tilted for 3D effect
-        ),
-      ),
-    );
-
-    // Step 3: Settle into final navigation view
-    await Future.delayed(const Duration(milliseconds: 500));
-    
-    if (mounted && _controller != null && _current != null) {
-      _controller!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: _current!,
-            zoom: 19, // Final navigation zoom
-            bearing: _currentBearing,
-            tilt: 60, // Navigation tilt
-          ),
-        ),
-      );
-    }
   }
 
   void _findClosestPointOnRoute(LatLng currentLocation) {
@@ -491,7 +575,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     _closestPointIndex = closestIndex;
     
-    // Update route points to start from closest point
     if (closestIndex < _originalRoutePoints.length) {
       _routePoints = _originalRoutePoints.sublist(closestIndex);
     }
@@ -508,7 +591,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         _currentBearing = position.heading;
       }
 
-      // Add to traveled path with minimum distance threshold
       if (_traveledPath.isEmpty || 
           _calculateDistance(
             _traveledPath.last.latitude,
@@ -519,7 +601,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         _traveledPath.add(newLocation);
       }
 
-      // Update remaining route accurately
       if (_originalRoutePoints.isNotEmpty) {
         _updateRemainingRouteAccurate(newLocation);
       }
@@ -535,7 +616,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
             target: newLocation,
             zoom: _currentZoom,
             bearing: _currentBearing,
-            tilt: 60, // Navigation tilt
+            tilt: 50,
           ),
         ),
       );
@@ -549,11 +630,9 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
   void _updateRemainingRouteAccurate(LatLng currentLocation) {
     if (_originalRoutePoints.isEmpty) return;
 
-    // Find the closest point on the route
     double minDistance = double.infinity;
     int closestIndex = _closestPointIndex;
 
-    // Search in a window around the current closest point for efficiency
     int searchStart = max(0, _closestPointIndex - 5);
     int searchEnd = min(_originalRoutePoints.length, _closestPointIndex + 20);
 
@@ -571,20 +650,16 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       }
     }
 
-    // Update the closest point index
     if (closestIndex > _closestPointIndex) {
       _closestPointIndex = closestIndex;
     }
 
-    // Update route points to show remaining path accurately
-    // Include current location as first point for smooth transition
     if (_closestPointIndex < _originalRoutePoints.length - 1) {
       _routePoints = [
         currentLocation,
         ..._originalRoutePoints.sublist(_closestPointIndex + 1),
       ];
     } else if (_closestPointIndex == _originalRoutePoints.length - 1) {
-      // Near the end, just show line to destination
       _routePoints = [
         currentLocation,
         _originalRoutePoints.last,
@@ -631,7 +706,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     final currentLatLng = LatLng(currentPos.latitude, currentPos.longitude);
     
-    // Calculate distance to destination
     final destDistance = _calculateDistance(
       currentLatLng.latitude,
       currentLatLng.longitude,
@@ -639,13 +713,11 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       _originalRoutePoints.last.longitude,
     );
 
-    // Check if reached destination (within 20 meters)
     if (destDistance < 20 && !_hasReachedDestination) {
       _reachedDestination();
       return;
     }
 
-    // Update step progress
     if (_closestPointIndex < _originalRoutePoints.length - 1) {
       final nextPoint = _originalRoutePoints[_closestPointIndex + 1];
       
@@ -656,7 +728,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         nextPoint.longitude,
       );
 
-      // Advance step if close enough (within 25 meters)
       if (_distanceToNextStep < 25 && _currentStepIndex < _steps.length - 1) {
         _advanceToNextStep();
       }
@@ -688,7 +759,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     _positionStream?.cancel();
     
-    // Show notification
+    _saveRouteToHistory();
     _showArrivalNotification();
 
     showDialog(
@@ -720,7 +791,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
     double totalDistance = 0;
     
     if (_current != null && _originalRoutePoints.isNotEmpty && _closestPointIndex < _originalRoutePoints.length) {
-      // Distance from current location to next point
       if (_closestPointIndex + 1 < _originalRoutePoints.length) {
         totalDistance += _calculateDistance(
           _current!.latitude,
@@ -729,7 +799,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
           _originalRoutePoints[_closestPointIndex + 1].longitude,
         );
 
-        // Sum up remaining segments
         for (int i = _closestPointIndex + 1; i < _originalRoutePoints.length - 1; i++) {
           totalDistance += _calculateDistance(
             _originalRoutePoints[i].latitude,
@@ -739,7 +808,6 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
           );
         }
       } else {
-        // Just distance to final destination
         totalDistance = _calculateDistance(
           _current!.latitude,
           _current!.longitude,
@@ -751,9 +819,8 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
 
     _totalDistanceRemaining = totalDistance;
 
-    // Calculate ETA based on mode
     final mode = widget.routeData?['mode'] ?? 'walking';
-    final speedKmh = mode == 'walking' ? 5.0 : 15.0; // walking: 5km/h, biking: 15km/h
+    final speedKmh = mode == 'walking' ? 5.0 : 15.0;
     final hours = (totalDistance / 1000) / speedKmh;
     final minutes = (hours * 60).round();
     
@@ -831,7 +898,7 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
             target: _current!,
             zoom: _currentZoom,
             bearing: _currentBearing,
-            tilt: _isNavigating ? 60 : 45,
+            tilt: 50,
           ),
         ),
       );
@@ -861,6 +928,22 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
         ],
       ),
     );
+  }
+
+  // Get current segment info for display
+  String _getCurrentSegmentInfo() {
+    if (_routeSegments.isEmpty || _closestPointIndex >= _originalRoutePoints.length) {
+      return 'Following route';
+    }
+
+    int segmentSize = max(5, _originalRoutePoints.length ~/ 8);
+    int currentSegmentIndex = _closestPointIndex ~/ segmentSize;
+    
+    if (currentSegmentIndex < _routeSegments.length) {
+      return _routeSegments[currentSegmentIndex].label;
+    }
+    
+    return 'Following route';
   }
 
   @override
@@ -947,6 +1030,33 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
                                     ),
                                   ],
                                 ),
+                              
+                              // Show current segment info
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: primaryGreen.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: primaryGreen.withOpacity(0.3)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.info_outline, size: 14, color: primaryGreen),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      _getCurrentSegmentInfo(),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: darkGreen,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
                               const Divider(height: 24),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1142,4 +1252,31 @@ class _MapRouteScreenState extends State<MapRouteScreen> {
       ),
     );
   }
+}
+
+// Segment types
+enum SegmentType {
+  normal,
+  bikeLane,
+  mixed,
+  steep,
+  moderate,
+  scenic,
+  greenSpace,
+  shaded,
+  pedestrian,
+}
+
+class RouteSegment {
+  final List<LatLng> points;
+  final SegmentType type;
+  final Color color;
+  final String label;
+
+  RouteSegment({
+    required this.points,
+    required this.type,
+    required this.color,
+    required this.label,
+  });
 }
