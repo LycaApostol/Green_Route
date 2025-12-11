@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class DefaultLocationSettings extends StatefulWidget {
-  const DefaultLocationSettings({super.key});
+class SettingsDefaultLocationScreen extends StatefulWidget {
+  const SettingsDefaultLocationScreen({super.key});
 
   @override
-  State<DefaultLocationSettings> createState() => _DefaultLocationSettingsState();
+  State<SettingsDefaultLocationScreen> createState() => _SettingsDefaultLocationScreenState();
 }
 
-class _DefaultLocationSettingsState extends State<DefaultLocationSettings> {
+class _SettingsDefaultLocationScreenState extends State<SettingsDefaultLocationScreen> {
   bool _useCurrentLocation = true;
-  String _savedLocation = '';
+  bool _locationAccuracy = true;
   bool _isLoading = true;
-  final TextEditingController _locationController = TextEditingController();
 
   @override
   void initState() {
@@ -21,251 +20,254 @@ class _DefaultLocationSettingsState extends State<DefaultLocationSettings> {
     _loadSettings();
   }
 
-  @override
-  void dispose() {
-    _locationController.dispose();
-    super.dispose();
-  }
-
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _useCurrentLocation = prefs.getBool('use_current_location') ?? true;
-      _savedLocation = prefs.getString('default_location') ?? '';
-      _locationController.text = _savedLocation;
+      _locationAccuracy = prefs.getBool('location_accuracy') ?? true;
       _isLoading = false;
     });
   }
 
-  Future<void> _saveSettings() async {
+  Future<void> _saveUseCurrentLocation(bool value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('use_current_location', _useCurrentLocation);
-    await prefs.setString('default_location', _locationController.text);
+    await prefs.setBool('use_current_location', value);
     
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Location settings saved'),
-          backgroundColor: Colors.green,
-        ),
-      );
+    setState(() {
+      _useCurrentLocation = value;
+    });
+
+    if (value) {
+      // Check location permission when enabling
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied || 
+          permission == LocationPermission.deniedForever) {
+        _showLocationPermissionDialog();
+      }
     }
   }
 
-  Future<void> _getCurrentLocation() async {
-    try {
-      // Check if location services are enabled
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please enable location services')),
-          );
-        }
-        return;
-      }
+  Future<void> _saveLocationAccuracy(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('location_accuracy', value);
+    
+    setState(() {
+      _locationAccuracy = value;
+    });
 
-      // Check location permissions
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Location permission denied')),
-            );
-          }
-          return;
-        }
-      }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          value 
+            ? 'Location accuracy enabled for better results'
+            : 'Location accuracy disabled to save battery',
+        ),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
-      if (permission == LocationPermission.deniedForever) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Location permissions are permanently denied'),
-            ),
-          );
-        }
-        return;
-      }
-
-      // Get current position
-      Position position = await Geolocator.getCurrentPosition();
-      setState(() {
-        _locationController.text = '${position.latitude}, ${position.longitude}';
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Current location retrieved'),
-            backgroundColor: Colors.green,
+  void _showLocationPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Location Permission Required'),
+        content: const Text(
+          'To use your current location automatically, please enable location permissions in your device settings.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
           ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error getting location: $e')),
-        );
-      }
-    }
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await Geolocator.requestPermission();
+            },
+            child: const Text('Enable'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Default Location')),
-        body: const Center(child: CircularProgressIndicator()),
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text('Default Location'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 0,
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Location Preferences',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+      body: ListView(
+        children: [
+          // LOCATION SERVICES Section
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              'LOCATION SERVICES',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600],
+                letterSpacing: 0.5,
               ),
-              const SizedBox(height: 8),
-              const Text(
-                'Set your default location for weather updates',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Use Current Location Toggle
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.my_location, color: Colors.green),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Use Current Location',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Automatically detect your location',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: _useCurrentLocation,
-                      activeThumbColor: Colors.green,
-                      onChanged: (value) {
-                        setState(() {
-                          _useCurrentLocation = value;
-                        });
-                        _saveSettings();
-                      },
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Manual Location Input
-              const Text(
-                'Manual Location',
+            ),
+          ),
+          
+          // Use Current Location
+          Container(
+            color: Colors.white,
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              title: const Text(
+                'Use Current Location',
                 style: TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w400,
                 ),
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _locationController,
-                enabled: !_useCurrentLocation,
-                decoration: InputDecoration(
-                  hintText: 'Enter city name or coordinates',
-                  prefixIcon: const Icon(Icons.location_city, color: Colors.green),
-                  suffixIcon: IconButton(
-                    icon: const Icon(Icons.gps_fixed),
-                    onPressed: _useCurrentLocation ? null : _getCurrentLocation,
-                    color: Colors.green,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: Colors.grey[300]!),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Colors.green, width: 2),
-                  ),
-                ),
-                onChanged: (value) {
-                  _saveSettings();
-                },
-              ),
-
-              const Spacer(),
-
-              // Save Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _saveSettings,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text(
-                    'Save Settings',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Allow app to detect your location automatically',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[600],
                   ),
                 ),
               ),
-            ],
+              trailing: Switch(
+                value: _useCurrentLocation,
+                onChanged: _saveUseCurrentLocation,
+                activeColor: Colors.green,
+              ),
+            ),
           ),
-        ),
+
+          const Divider(height: 1, indent: 16),
+
+          // Location Accuracy
+          Container(
+            color: Colors.white,
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              title: const Text(
+                'Location Accuracy',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Precise location for better results',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ),
+              trailing: Switch(
+                value: _locationAccuracy,
+                onChanged: _saveLocationAccuracy,
+                activeColor: Colors.green,
+              ),
+            ),
+          ),
+
+          const Divider(height: 1, indent: 16),
+
+          // Information card
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.green[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green[200]!),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  color: Colors.green[700],
+                  size: 20,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _useCurrentLocation
+                        ? 'Your location will be automatically detected when you open the app. You can always manually enter a location in the search.'
+                        : 'You will need to manually enter your location each time you search for routes.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[800],
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Additional settings (optional)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              'ABOUT LOCATION',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600],
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            leading: Icon(Icons.location_on_outlined, color: Colors.grey[700]),
+            title: const Text('Location Permission'),
+            subtitle: Text(
+              'Manage app location access',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
+            onTap: () async {
+              // Open device location settings
+              final permission = await Geolocator.checkPermission();
+              if (permission == LocationPermission.denied) {
+                await Geolocator.requestPermission();
+              } else if (permission == LocationPermission.deniedForever) {
+                await Geolocator.openLocationSettings();
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Location permission is already granted'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+          ),
+        ],
       ),
     );
   }

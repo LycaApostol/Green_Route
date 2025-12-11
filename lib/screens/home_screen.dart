@@ -6,6 +6,8 @@ import 'search_screen.dart';
 import 'recent_routes_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,38 +22,73 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String selectedMode = 'Cycling'; // Default mode
 
-  // Mode-specific preferences (single source of truth)
+  // Updated mode-specific preferences (removed steep hills, shade coverage, scenic routes)
   Map<String, Map<String, bool>> modePreferences = {
     'Cycling': {
       'Prioritize bike lanes': true,
-      'Avoid steep hills': false,
-      'Scenic routes': true,
       'Prioritize green spaces': true,
     },
     'Walking': {
       'Pedestrian-friendly paths': true,
-      'Shade coverage': false,
-      'Scenic routes': true,
       'Avoid highways': true,
     },
   };
 
-  void _navigateToSearch() {
-    // Navigate to search screen with current mode and preferences
+  @override
+  void initState() {
+    super.initState();
+    _checkAndRequestLocation();
+  }
+
+  Future<void> _checkAndRequestLocation() async {
+    final prefs = await SharedPreferences.getInstance();
+    final useCurrentLocation = prefs.getBool('use_current_location') ?? true;
+    
+    if (useCurrentLocation) {
+      try {
+        final permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          await Geolocator.requestPermission();
+        } else if (permission == LocationPermission.deniedForever) {
+          // Show info that user needs to enable location in settings
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('Location permission required. Enable in settings.'),
+                action: SnackBarAction(
+                  label: 'Settings',
+                  onPressed: () async {
+                    await Geolocator.openLocationSettings();
+                  },
+                ),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        print('Error checking location: $e');
+      }
+    }
+  }
+
+  Future<void> _navigateToSearch() async {
+    final prefs = await SharedPreferences.getInstance();
+    final useCurrentLocation = prefs.getBool('use_current_location') ?? true;
+    
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => SearchScreen(
           selectedMode: selectedMode,
           preferences: Map<String, bool>.from(modePreferences[selectedMode] ?? {}),
+          useCurrentLocation: useCurrentLocation,
           onPreferencesChanged: (updatedPreferences) {
-            // Update preferences when user changes them in SearchScreen
             setState(() {
               modePreferences[selectedMode] = updatedPreferences;
             });
           },
           onModeChanged: (newMode) {
-            // Update mode when user changes it in SearchScreen
             setState(() {
               selectedMode = newMode;
             });
@@ -395,7 +432,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Custom activity card that doesn't use hardcoded data
-Widget _buildActivityCard({
+  Widget _buildActivityCard({
     required String title,
     required String distance,
     required String duration,
@@ -513,6 +550,7 @@ Widget _buildActivityCard({
       ),
     );
   }
+
   // 🔹 Mode selection cards with highlight for selected mode
   Widget _modeCard(IconData icon, String label) {
     final isSelected = selectedMode == label;

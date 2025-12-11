@@ -4,6 +4,9 @@ import 'settings_default_location.dart';
 import 'settings_notifications.dart';
 import 'settings_privacy.dart';
 import 'settings_edit_profile.dart';
+import 'settings_help_feedback.dart';
+import '../services/admin_service.dart';
+import 'admin_panel_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -13,6 +16,24 @@ class AccountScreen extends StatefulWidget {
 }
 
 class _AccountScreenState extends State<AccountScreen> {
+  bool _isAdmin = false;
+  bool _checkingAdmin = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkAdminStatus();
+  }
+
+  Future<void> _checkAdminStatus() async {
+    final adminService = AdminService();
+    final isAdmin = await adminService.isAdmin();
+    setState(() {
+      _isAdmin = isAdmin;
+      _checkingAdmin = false;
+    });
+  }
+
   Future<void> _logout(BuildContext context) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -113,6 +134,27 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
               ),
               const SizedBox(height: 24),
+              
+              // Administration section (only visible if user is admin)
+              if (_isAdmin) ...[
+                const Text(
+                  "Administration",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 10),
+                _settingsTile(
+                  context,
+                  icon: Icons.admin_panel_settings,
+                  title: "Admin Panel",
+                  trailing: Icons.chevron_right,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AdminPanelScreen()),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+              
               const Text("Personal Information", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 10),
               _settingsTile(
@@ -129,7 +171,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 trailing: Icons.chevron_right,
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const DefaultLocationSettings()),
+                  MaterialPageRoute(builder: (_) => const SettingsDefaultLocationScreen()),
                 ),
               ),
               const SizedBox(height: 24),
@@ -158,13 +200,12 @@ class _AccountScreenState extends State<AccountScreen> {
               _settingsTile(
                 context,
                 icon: Icons.help_outline,
-                title: "Help & Support",
+                title: "Help & Feedback",
                 trailing: Icons.chevron_right,
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Help & Support not yet implemented')),
-                  );
-                },
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsHelpFeedbackScreen()),
+                ),
               ),
               const SizedBox(height: 30),
               SizedBox(

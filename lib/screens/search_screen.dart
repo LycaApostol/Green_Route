@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'route_list_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 const String googleApiKey = "";
 
@@ -12,6 +13,7 @@ class SearchScreen extends StatefulWidget {
   final Map<String, bool>? preferences;
   final Function(Map<String, bool>)? onPreferencesChanged;
   final Function(String)? onModeChanged;
+  final bool? useCurrentLocation; // NEW
 
   const SearchScreen({
     super.key,
@@ -19,6 +21,7 @@ class SearchScreen extends StatefulWidget {
     this.preferences,
     this.onPreferencesChanged,
     this.onModeChanged,
+    this.useCurrentLocation, // NEW
   });
 
   @override
@@ -49,37 +52,62 @@ class _SearchScreenState extends State<SearchScreen> {
   late Map<String, bool> currentPreferences;
 
   @override
-  void initState() {
-    super.initState();
-    currentMode = widget.selectedMode ?? 'Cycling';
-    currentPreferences = Map<String, bool>.from(widget.preferences ?? {});
+void initState() {
+  super.initState();
+  currentMode = widget.selectedMode ?? 'Cycling';
+  currentPreferences = Map<String, bool>.from(widget.preferences ?? _getDefaultPreferences(currentMode));
+  
+  // Only get location if setting is enabled
+  if (widget.useCurrentLocation ?? true) {
     _getCurrentLocation();
+  } else {
+    setState(() => loading = false);
+  }
+}
+  @override
+  void didUpdateWidget(SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Update when preferences change from HomeScreen
+    if (widget.preferences != null && widget.preferences != oldWidget.preferences) {
+      setState(() {
+        currentPreferences = Map<String, bool>.from(widget.preferences!);
+      });
+    }
+    if (widget.selectedMode != null && widget.selectedMode != oldWidget.selectedMode) {
+      setState(() {
+        currentMode = widget.selectedMode!;
+      });
+    }
+  }
+
+  Map<String, bool> _getDefaultPreferences(String mode) {
+    if (mode == 'Cycling') {
+      return {
+        'Prioritize bike lanes': true,
+        'Prioritize green spaces': true,
+      };
+    } else if (mode == 'Walking') {
+      return {
+        'Pedestrian-friendly paths': true,
+        'Avoid highways': true,
+      };
+    }
+    return {};
   }
 
   void _switchMode(String newMode) {
     setState(() {
       currentMode = newMode;
-      
-      // Load default preferences for the new mode
-      if (newMode == 'Cycling') {
-        currentPreferences = {
-          'Prioritize bike lanes': true,
-          'Avoid steep hills': false,
-          'Scenic routes': true,
-          'Prioritize green spaces': true,
-        };
-      } else if (newMode == 'Walking') {
-        currentPreferences = {
-          'Pedestrian-friendly paths': true,
-          'Shade coverage': false,
-          'Scenic routes': true,
-          'Avoid highways': true,
-        };
+      // Keep current preferences or load defaults
+      if (widget.preferences == null || widget.preferences!.isEmpty) {
+        currentPreferences = _getDefaultPreferences(newMode);
       }
     });
 
     // Notify HomeScreen about mode change
     widget.onModeChanged?.call(newMode);
+    // Also notify about preference change to sync
+    widget.onPreferencesChanged?.call(currentPreferences);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -91,33 +119,47 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _getCurrentLocation() async {
-    try {
-      final permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied || 
-          permission == LocationPermission.deniedForever) {
-        setState(() => loading = false);
-        return;
-      }
-
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high
-      );
-      
-      // Get address from coordinates
-      final address = await _getAddressFromCoordinates(pos.latitude, pos.longitude);
-      
-      setState(() {
-        currentLocation = maps.LatLng(pos.latitude, pos.longitude);
-        currentAddress = address ?? "Current Location";
-        fromController.text = currentAddress!;
-        selectedFromLocation = currentLocation;
-        loading = false;
-      });
-    } catch (e) {
-      print('Error getting location: $e');
+  try {
+    // Check location settings preference
+    final prefs = await SharedPreferences.getInstance();
+    final useLocation = prefs.getBool('use_current_location') ?? true;
+    
+    if (!useLocation) {
       setState(() => loading = false);
+      return;
     }
+
+    final permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied || 
+        permission == LocationPermission.deniedForever) {
+      setState(() => loading = false);
+      return;
+    }
+
+    // Get location accuracy setting
+    final useAccuracy = prefs.getBool('location_accuracy') ?? true;
+    final accuracy = useAccuracy 
+        ? LocationAccuracy.high 
+        : LocationAccuracy.medium;
+
+    final pos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: accuracy
+    );
+    
+    final address = await _getAddressFromCoordinates(pos.latitude, pos.longitude);
+    
+    setState(() {
+      currentLocation = maps.LatLng(pos.latitude, pos.longitude);
+      currentAddress = address ?? "Current Location";
+      fromController.text = currentAddress!;
+      selectedFromLocation = currentLocation;
+      loading = false;
+    });
+  } catch (e) {
+    print('Error getting location: $e');
+    setState(() => loading = false);
   }
+}
 
   Future<String?> _getAddressFromCoordinates(double lat, double lng) async {
     try {
@@ -362,15 +404,11 @@ class _SearchScreenState extends State<SearchScreen> {
         : Icons.directions_walk;
   }
 
-  Color _getModeColor() {
-    return currentMode == 'Cycling' ? Colors.green : Colors.green[800]!;
-  }
-
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      // Save preferences when user navigates back
       onWillPop: () async {
+        // Save preferences when user navigates back
         widget.onPreferencesChanged?.call(currentPreferences);
         return true;
       },
@@ -390,7 +428,6 @@ class _SearchScreenState extends State<SearchScreen> {
             foregroundColor: Colors.green[900],
             elevation: 0,
             actions: [
-              // Mode selector button
               Padding(
                 padding: const EdgeInsets.only(right: 8.0),
                 child: PopupMenuButton<String>(

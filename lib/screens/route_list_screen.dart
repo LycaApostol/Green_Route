@@ -124,7 +124,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
               );
             }
 
-            // Generate route segments with characteristics
             List<RouteSegment> segments = _generateRouteSegments(
               polylineCoordinates,
               route['summary'] ?? '',
@@ -153,7 +152,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
             ));
           }
 
-          // Sort routes based on preferences
           if (widget.travelMode == 'Cycling') {
             if (widget.preferences['Prioritize bike lanes'] == true) {
               routesList.sort((a, b) {
@@ -329,7 +327,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
     }
   }
 
-  // Generate route segments with different characteristics
   List<RouteSegment> _generateRouteSegments(
     List<maps.LatLng> coordinates,
     String summary,
@@ -341,19 +338,16 @@ class _RouteListScreenState extends State<RouteListScreen> {
     List<RouteSegment> segments = [];
     final random = Random(summary.hashCode);
     
-    // Divide route into segments (every ~10-15 points)
     int segmentSize = max(10, coordinates.length ~/ 5);
     
     for (int i = 0; i < coordinates.length - 1; i += segmentSize) {
       int endIndex = min(i + segmentSize, coordinates.length);
       List<maps.LatLng> segmentPoints = coordinates.sublist(i, endIndex);
       
-      // Determine segment characteristics based on preferences
       SegmentType type = SegmentType.normal;
       Color color = Colors.green;
       
       if (widget.travelMode == 'Cycling') {
-        // Check for bike lane preference
         if (widget.preferences['Prioritize bike lanes'] == true) {
           if (bikeLaneScore >= 10) {
             type = random.nextDouble() > 0.3 ? SegmentType.bikeLane : SegmentType.normal;
@@ -367,7 +361,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
           }
         }
         
-        // Check for hill preference
         if (widget.preferences['Avoid steep hills'] == true) {
           if (elevationGain > 80) {
             type = random.nextDouble() > 0.4 ? SegmentType.steep : type;
@@ -378,7 +371,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
           }
         }
 
-        // Check for scenic routes preference
         if (widget.preferences['Scenic routes'] == true) {
           if (random.nextDouble() > 0.6) {
             type = SegmentType.scenic;
@@ -386,7 +378,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
           }
         }
 
-        // Check for green spaces preference
         if (widget.preferences['Prioritize green spaces'] == true) {
           if (random.nextDouble() > 0.5) {
             type = SegmentType.greenSpace;
@@ -394,7 +385,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
           }
         }
       } else if (widget.travelMode == 'Walking') {
-        // Check for shade coverage
         if (widget.preferences['Shade coverage'] == true) {
           if (random.nextDouble() > 0.5) {
             type = SegmentType.shaded;
@@ -402,7 +392,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
           }
         }
 
-        // Check for pedestrian-friendly
         if (widget.preferences['Pedestrian-friendly paths'] == true) {
           if (random.nextDouble() > 0.4) {
             type = SegmentType.pedestrian;
@@ -410,7 +399,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
           }
         }
 
-        // Check for scenic routes
         if (widget.preferences['Scenic routes'] == true) {
           if (random.nextDouble() > 0.6) {
             type = SegmentType.scenic;
@@ -577,32 +565,27 @@ class _RouteListScreenState extends State<RouteListScreen> {
     
     String label;
     Color bgColor;
-    Color borderColor;
     Color textColor;
     IconData icon;
     
     if (route.bikeLaneScore >= 10) {
       label = 'Excellent bike-friendly route';
-      bgColor = Colors.green.shade100;
-      borderColor = Colors.green.shade400;
-      textColor = Colors.green.shade800;
+      bgColor = Colors.green[100]!;
+      textColor = Colors.green[900]!;
       icon = Icons.verified;
     } else if (route.bikeLaneScore >= 7) {
       label = 'Good bike lane coverage';
-      bgColor = Colors.green.shade50;
-      borderColor = Colors.green.shade300;
-      textColor = Colors.green.shade700;
+      bgColor = Colors.green[50]!;
+      textColor = Colors.green[800]!;
       icon = Icons.pedal_bike;
     } else if (route.bikeLaneScore >= 4) {
       label = 'Moderate bike infrastructure';
       bgColor = Colors.orange.shade50;
-      borderColor = Colors.orange.shade300;
-      textColor = Colors.orange.shade700;
+      textColor = Colors.orange.shade800;
       icon = Icons.info_outline;
     } else {
       label = 'Limited bike lanes';
       bgColor = Colors.amber.shade50;
-      borderColor = Colors.amber.shade300;
       textColor = Colors.amber.shade800;
       icon = Icons.warning_amber_rounded;
     }
@@ -612,8 +595,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green[200]!),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -632,14 +615,14 @@ class _RouteListScreenState extends State<RouteListScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
             decoration: BoxDecoration(
-              color: textColor.withOpacity(0.2),
+              color: Colors.green[100],
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
               '${route.bikeLaneScore}/15',
               style: TextStyle(
                 fontSize: 9,
-                color: textColor,
+                color: Colors.green[900],
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -655,23 +638,19 @@ class _RouteListScreenState extends State<RouteListScreen> {
     }
     
     Color bgColor;
-    Color borderColor;
     Color textColor;
     String difficulty;
     
     if (route.elevationGain < 30) {
-      bgColor = Colors.green.shade100;
-      borderColor = Colors.green.shade400;
-      textColor = Colors.green.shade800;
+      bgColor = Colors.green[100]!;
+      textColor = Colors.green[900]!;
       difficulty = 'Easy';
     } else if (route.elevationGain < 80) {
-      bgColor = Colors.orange.shade100;
-      borderColor = Colors.orange.shade400;
+      bgColor = Colors.orange.shade50;
       textColor = Colors.orange.shade800;
       difficulty = 'Moderate';
     } else {
       bgColor = Colors.red.shade100;
-      borderColor = Colors.red.shade400;
       textColor = Colors.red.shade800;
       difficulty = 'Challenging';
     }
@@ -681,8 +660,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.green[200]!),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -702,7 +681,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
     );
   }
 
-  // Build legend for route segments
   Widget _buildRouteLegend() {
     List<Widget> legendItems = [];
 
@@ -740,23 +718,23 @@ class _RouteListScreenState extends State<RouteListScreen> {
       margin: const EdgeInsets.only(top: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade300),
+        color: Colors.green[50],
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.green[200]!),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.map, size: 16, color: Colors.grey.shade700),
+              Icon(Icons.map, size: 16, color: Colors.green[700]),
               const SizedBox(width: 6),
               Text(
                 'Route Legend',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
-                  color: Colors.grey.shade800,
+                  color: Colors.green[900],
                 ),
               ),
             ],
@@ -789,7 +767,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
           label,
           style: TextStyle(
             fontSize: 10,
-            color: Colors.grey.shade700,
+            color: Colors.grey[700],
           ),
         ),
       ],
@@ -799,11 +777,12 @@ class _RouteListScreenState extends State<RouteListScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Route Options', style: TextStyle(fontSize: 18)),
+            const Text('Route Options', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Row(
               children: [
                 Icon(_getTravelModeIcon(), size: 14, color: Colors.green[700]),
@@ -813,7 +792,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.green[700],
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -825,7 +804,9 @@ class _RouteListScreenState extends State<RouteListScreen> {
         elevation: 0,
       ),
       body: loading
-          ? Center(child: CircularProgressIndicator(color: Colors.green))
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.green),
+            )
           : errorMessage != null
               ? Center(
                   child: Padding(
@@ -844,7 +825,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 16,
-                            color: Colors.grey[700],
+                            color: Colors.grey[600],
                           ),
                         ),
                         const SizedBox(height: 24),
@@ -865,7 +846,12 @@ class _RouteListScreenState extends State<RouteListScreen> {
                   children: [
                     Container(
                       padding: const EdgeInsets.all(16),
-                      color: Colors.green[50],
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        border: Border(
+                          bottom: BorderSide(color: Colors.green[200]!),
+                        ),
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -891,7 +877,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                               Expanded(
                                 child: Text(
                                   widget.toAddress,
-                                  style: const TextStyle(fontSize: 14),
+                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -945,14 +931,14 @@ class _RouteListScreenState extends State<RouteListScreen> {
                           
                           return Card(
                             margin: const EdgeInsets.only(bottom: 16),
-                            elevation: isRecommended ? 6 : 3,
+                            elevation: isRecommended ? 4 : 2,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(12),
                               side: BorderSide(
                                 color: isRecommended 
                                     ? Colors.green
-                                    : Colors.green.withOpacity(0.3),
-                                width: isRecommended ? 3 : 2,
+                                    : Colors.green[200]!,
+                                width: isRecommended ? 2 : 1,
                               ),
                             ),
                             child: Column(
@@ -962,26 +948,23 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                     width: double.infinity,
                                     padding: const EdgeInsets.symmetric(vertical: 8),
                                     decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [Colors.green.shade400, Colors.green.shade600],
-                                      ),
+                                      color: Colors.green,
                                       borderRadius: const BorderRadius.only(
-                                        topLeft: Radius.circular(14),
-                                        topRight: Radius.circular(14),
+                                        topLeft: Radius.circular(12),
+                                        topRight: Radius.circular(12),
                                       ),
                                     ),
                                     child: Row(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: const [
-                                        Icon(Icons.star, size: 18, color: Colors.white),
+                                        Icon(Icons.star, size: 16, color: Colors.white),
                                         SizedBox(width: 6),
                                         Text(
                                           'RECOMMENDED - Best Route',
                                           style: TextStyle(
                                             color: Colors.white,
-                                            fontSize: 13,
+                                            fontSize: 12,
                                             fontWeight: FontWeight.bold,
-                                            letterSpacing: 0.5,
                                           ),
                                         ),
                                       ],
@@ -995,8 +978,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                       borderRadius: isRecommended 
                                           ? BorderRadius.zero
                                           : const BorderRadius.only(
-                                              topLeft: Radius.circular(14),
-                                              topRight: Radius.circular(14),
+                                              topLeft: Radius.circular(12),
+                                              topRight: Radius.circular(12),
                                             ),
                                       child: Stack(
                                         children: [
@@ -1059,14 +1042,18 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                 InkWell(
                                   onTap: () => _navigateToDetail(route, index, routeName),
                                   borderRadius: const BorderRadius.only(
-                                    bottomLeft: Radius.circular(16),
-                                    bottomRight: Radius.circular(16),
+                                    bottomLeft: Radius.circular(12),
+                                    bottomRight: Radius.circular(12),
                                   ),
                                   child: Container(
-                                    color: isRecommended 
-                                        ? Colors.green.shade50
-                                        : Colors.white,
                                     padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: isRecommended ? Colors.green[50] : Colors.white,
+                                      borderRadius: const BorderRadius.only(
+                                        bottomLeft: Radius.circular(12),
+                                        bottomRight: Radius.circular(12),
+                                      ),
+                                    ),
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
@@ -1075,29 +1062,19 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                             Icon(
                                               _getTravelModeIcon(),
                                               size: 20,
-                                              color: isRecommended 
-                                                  ? Colors.green.shade800
-                                                  : Colors.green.shade700,
+                                              color: Colors.green[800],
                                             ),
                                             const SizedBox(width: 8),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 10,
-                                                vertical: 4,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: isRecommended 
-                                                    ? Colors.green.shade700
-                                                    : Colors.green,
-                                                borderRadius: BorderRadius.circular(6),
-                                              ),
+                                            Expanded(
                                               child: Text(
                                                 routeName,
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 12,
+                                                style: TextStyle(
+                                                  fontSize: 16,
                                                   fontWeight: FontWeight.bold,
+                                                  color: Colors.green[900],
                                                 ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
                                               ),
                                             ),
                                           ],
@@ -1116,8 +1093,7 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                                 'via ${route.summary}',
                                                 style: TextStyle(
                                                   fontSize: 13,
-                                                  color: Colors.grey[700],
-                                                  fontWeight: FontWeight.w500,
+                                                  color: Colors.grey[600],
                                                 ),
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
@@ -1134,8 +1110,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               route.distance,
                                               style: TextStyle(
                                                 fontSize: 13,
-                                                color: Colors.grey[800],
-                                                fontWeight: FontWeight.w500,
+                                                fontWeight: FontWeight.w600,
+                                                color: Colors.green[900],
                                               ),
                                             ),
                                             const SizedBox(width: 12),
@@ -1146,7 +1122,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               style: TextStyle(
                                                 fontSize: 13,
                                                 color: Colors.grey[800],
-                                                fontWeight: FontWeight.w500,
                                               ),
                                             ),
                                           ],
@@ -1162,13 +1137,8 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                             vertical: 4,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: isRecommended 
-                                                ? Colors.green.shade100
-                                                : Colors.green.shade50,
+                                            color: Colors.green[100],
                                             borderRadius: BorderRadius.circular(6),
-                                            border: Border.all(
-                                              color: Colors.green,
-                                            ),
                                           ),
                                           child: Row(
                                             mainAxisSize: MainAxisSize.min,
@@ -1176,14 +1146,14 @@ class _RouteListScreenState extends State<RouteListScreen> {
                                               Icon(
                                                 Icons.check_circle,
                                                 size: 14,
-                                                color: Colors.green.shade800,
+                                                color: Colors.green[800],
                                               ),
                                               const SizedBox(width: 4),
                                               Text(
                                                 'Optimized for ${widget.travelMode.toLowerCase()}',
                                                 style: TextStyle(
                                                   fontSize: 11,
-                                                  color: Colors.green.shade800,
+                                                  color: Colors.green[800],
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
@@ -1269,7 +1239,6 @@ class _RouteListScreenState extends State<RouteListScreen> {
   }
 }
 
-// Segment types for different route characteristics
 enum SegmentType {
   normal,
   bikeLane,

@@ -193,7 +193,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       appBar: AppBar(
         title: const Text('Edit Profile'),
         backgroundColor: Colors.white,
-        foregroundColor: Colors.green[900],
+        foregroundColor: const Color.fromARGB(255, 0, 19, 1),
         elevation: 0,
         actions: [
           if (_isLoading || _isUploadingImage)
